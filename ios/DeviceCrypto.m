@@ -304,7 +304,13 @@ RCT_EXPORT_METHOD(sign:(nonnull NSData *)alias withPlainText:(nonnull NSString *
 {
   @try {
     CFErrorRef aerr = nil;
-    NSData *textToBeSigned = [plainText dataUsingEncoding:NSUTF8StringEncoding];
+    // NSData *textToBeSigned = [plainText dataUsingEncoding:NSUTF8StringEncoding];
+    // Decode the base64-encoded input string to data
+    NSData *textToBeSigned = [[NSData alloc] initWithBase64EncodedString:plainText options:0];
+    if (!textToBeSigned) {
+        [NSException raise:@"E1718 - Invalid input." format:@"Input string is not a valid base64."];
+    }
+
     NSString *authMessage = options[kAuthenticatePrompt];
     SecKeyRef privateKeyRef = [self getPrivateKeyRef:alias withMessage:authMessage];
     
@@ -327,37 +333,57 @@ RCT_EXPORT_METHOD(sign:(nonnull NSData *)alias withPlainText:(nonnull NSString *
   }
 }
 
-RCT_EXPORT_METHOD(encrypt:(nonnull NSData *)alias withPlainText:(nonnull NSString *)plainText withOptions:(nonnull NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXPORT_METHOD(encrypt:(nonnull NSString *)publicKeyBase64 withPlainText:(nonnull NSString *)plainText withOptions:(nonnull NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
   @try {
-    CFErrorRef aerr = NULL;
-    NSData* cipherText = nil;
-    NSData *textToBeEncrypted = [plainText dataUsingEncoding:NSUTF8StringEncoding];
-    SecKeyRef publicKey = [self getPublicKeyRef:alias];
-    
-    BOOL canEncrypt = SecKeyIsAlgorithmSupported(publicKey, kSecKeyOperationTypeEncrypt, kSecKeyAlgorithmECIESEncryptionCofactorX963SHA256AESGCM);
-    if (!canEncrypt) {
-      [NSException raise:@"E1759 - Device cannot encrypt." format:@"%@", nil];
-    }
-    
-    cipherText = (NSData*)CFBridgingRelease(
-                                            SecKeyCreateEncryptedData(publicKey,
-                                                                      kSecKeyAlgorithmECIESEncryptionCofactorX963SHA256AESGCM,
-                                                                      (__bridge CFDataRef)textToBeEncrypted,
-                                                                      &aerr));
-    if (!cipherText || aerr) {
-      [NSException raise:@"E1760 - Encryption error." format:@"%@", aerr];
-    }
-    
-    if (publicKey) { CFRelease(publicKey); }
-    if (aerr) { CFRelease(aerr); }
-    
-    resolve(@{
-      @"iv": @"NotRequired",
-      @"encryptedText": [cipherText base64EncodedStringWithOptions:0],
-    });
+      CFErrorRef aerr = NULL;
+      NSData* cipherText = nil;
+      // NSData *textToBeEncrypted = [plainText dataUsingEncoding:NSUTF8StringEncoding];
+      NSData *textToBeEncrypted = [[NSData alloc] initWithBase64EncodedString:plainText options:0];
+      if (!textToBeEncrypted) {
+          [NSException raise:@"E1718 - Invalid input." format:@"Input string is not a valid base64."];
+      }
+      
+      // Decode the base64-encoded public key
+      NSData *publicKeyData = [[NSData alloc] initWithBase64EncodedString:publicKeyBase64 options:0];
+      NSDictionary *publicKeyAttributes = @{
+          (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
+          (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPublic,
+          (id)kSecAttrKeySizeInBits: @256,
+      };
+      SecKeyRef publicKey = SecKeyCreateWithData((__bridge CFDataRef)publicKeyData,
+                                                  (__bridge CFDictionaryRef)publicKeyAttributes,
+                                                  &aerr);
+      if (!publicKey || aerr) {
+          [NSException raise:@"E1761 - Public Key Error" format:@"%@", aerr];
+      }
+      
+      // Check if the public key supports encryption
+      BOOL canEncrypt = SecKeyIsAlgorithmSupported(publicKey, kSecKeyOperationTypeEncrypt, kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM);
+      if (!canEncrypt) {
+          [NSException raise:@"E1759 - Device cannot encrypt." format:@"%@", nil];
+      }
+      
+      // Encrypt the data
+      cipherText = (NSData*)CFBridgingRelease(
+                                              SecKeyCreateEncryptedData(publicKey,
+                                                                        kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM,
+                                                                        (__bridge CFDataRef)textToBeEncrypted,
+                                                                        &aerr));
+      if (!cipherText || aerr) {
+          [NSException raise:@"E1760 - Encryption error." format:@"%@", aerr];
+      }
+      
+      if (publicKey) { CFRelease(publicKey); }
+      if (aerr) { CFRelease(aerr); }
+      
+      // Resolve the promise with the encrypted text
+      resolve(@{
+        @"iv": @"NotRequired",
+        @"encryptedText": [cipherText base64EncodedStringWithOptions:0],
+      });
   } @catch(NSException *err) {
-    reject(err.name, err.description, nil);
+      reject(err.name, err.description, nil);
   }
 }
 
@@ -370,7 +396,7 @@ RCT_EXPORT_METHOD(decrypt:(nonnull NSData *)alias withPlainText:(nonnull NSStrin
     NSString *authMessage = options[kAuthenticatePrompt];
     SecKeyRef privateKeyRef = [self getPrivateKeyRef:alias withMessage:authMessage];
     
-    BOOL canDecrypt = SecKeyIsAlgorithmSupported(privateKeyRef, kSecKeyOperationTypeDecrypt, kSecKeyAlgorithmECIESEncryptionCofactorX963SHA256AESGCM);
+    BOOL canDecrypt = SecKeyIsAlgorithmSupported(privateKeyRef, kSecKeyOperationTypeDecrypt, kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM);
     
     if (!canDecrypt) {
       [NSException raise:@"E1759 - Device cannot encrypt." format:@"%@", nil];
@@ -378,7 +404,7 @@ RCT_EXPORT_METHOD(decrypt:(nonnull NSData *)alias withPlainText:(nonnull NSStrin
     
     clearText = (NSData*)CFBridgingRelease(
                                            SecKeyCreateDecryptedData(privateKeyRef,
-                                                                     kSecKeyAlgorithmECIESEncryptionCofactorX963SHA256AESGCM,
+                                                                     kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM,
                                                                      (__bridge CFDataRef)textToBeDecrypted,
                                                                      &aerr));
     
@@ -389,7 +415,10 @@ RCT_EXPORT_METHOD(decrypt:(nonnull NSData *)alias withPlainText:(nonnull NSStrin
     if (privateKeyRef) { CFRelease(privateKeyRef); }
     if (aerr) { CFRelease(aerr); }
     
-    resolve([[NSString alloc] initWithData:clearText   encoding:NSUTF8StringEncoding]);
+    // resolve([[NSString alloc] initWithData:clearText   encoding:NSUTF8StringEncoding]);
+    // Encode the clearText to Base64 before resolving
+    NSString *base64EncodedResult = [clearText base64EncodedStringWithOptions:0];
+    resolve(base64EncodedResult);
   } @catch(NSException *err) {
     reject(err.name, err.description, nil);
   }

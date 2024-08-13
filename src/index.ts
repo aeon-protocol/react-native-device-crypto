@@ -118,11 +118,11 @@ const DeviceCrypto = {
    * @return {Promise} Resolves to encrypted text `Base64` formatted
    */
   async encrypt(
-    alias: string,
+    publicKeyBase64: string,
     plainText: string,
     options: BiometryParams
   ): Promise<EncryptionResult> {
-    return RNDeviceCrypto.encrypt(alias, plainText, options);
+    return RNDeviceCrypto.encrypt(publicKeyBase64, plainText, options);
   },
 
   /**
