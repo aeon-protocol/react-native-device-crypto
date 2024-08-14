@@ -85,6 +85,17 @@ typedef NS_ENUM(NSUInteger, AccessLevel) {
   return returnVal;
 }
 
+- (NSString*)getPublicKeyBase64Encoded:(nonnull NSData *)alias {
+    NSData *publicKeyBits = [self getPublicKeyBits:alias];
+
+    if (publicKeyBits == nil) {
+        return nil;
+    }
+
+    NSString *base64EncodedPublicKey = [publicKeyBits base64EncodedStringWithOptions:0];
+    return base64EncodedPublicKey;
+}
+
 - (NSString*) getPublicKeyAsPEM:(nonnull NSData*) alias
 {
   const char asnHeader[] = {
@@ -174,6 +185,21 @@ typedef NS_ENUM(NSUInteger, AccessLevel) {
   else
     [NSException raise:@"E1715: Unexpected OSStatus" format:@"Status: %i", (int)status];
   return nil;
+}
+
+
+//putting in separate function to make user only do one face scan for multiple operations
+- (SecKeyRef)retrievePrivateKeyRef:(nonnull NSData *)alias withMessage:(NSString *)authMessage error:(NSError **)error {
+    @try {
+        return [self getPrivateKeyRef:alias withMessage:authMessage];
+    } @catch (NSException *exception) {
+        if (error) {
+            *error = [NSError errorWithDomain:@"PrivateKeyRetrievalError"
+                                         code:1001
+                                     userInfo:@{NSLocalizedDescriptionKey: exception.description}];
+        }
+        return nil;
+    }
 }
 
 - (bool) deletePrivateKey:(nonnull NSData*) alias
@@ -423,6 +449,98 @@ RCT_EXPORT_METHOD(decrypt:(nonnull NSData *)alias withPlainText:(nonnull NSStrin
     reject(err.name, err.description, nil);
   }
 }
+
+
+// batch processing of requests
+RCT_EXPORT_METHOD(processBatchOperations:(nonnull NSArray<NSDictionary *> *)operations
+                  withAlias:(nonnull NSData *)alias
+                  withOptions:(nonnull NSDictionary *)options
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        @try {
+            NSError *keyError = nil;
+            NSString *authMessage = options[kAuthenticatePrompt];
+            SecKeyRef privateKeyRef = [self retrievePrivateKeyRef:alias withMessage:authMessage error:&keyError];
+            
+            if (!privateKeyRef || keyError) {
+                reject(@"E1800", keyError.localizedDescription, nil);
+                return;
+            }
+            
+            NSMutableArray *results = [NSMutableArray array];
+            
+            for (NSDictionary *operation in operations) {
+                NSString *type = operation[@"type"];
+                NSString *data = operation[@"data"];
+                
+                if ([type isEqualToString:@"sign"]) {
+                    // Signing Operation
+                    NSData *textToBeSigned = [[NSData alloc] initWithBase64EncodedString:data options:0];
+                    if (!textToBeSigned) {
+                        [NSException raise:@"E1718 - Invalid input." format:@"Input string is not a valid base64."];
+                    }
+                    
+                    BOOL canSign = SecKeyIsAlgorithmSupported(privateKeyRef, kSecKeyOperationTypeSign, kSecKeyAlgorithmECDSASignatureMessageX962SHA256);
+                    if (!canSign) {
+                        [NSException raise:@"E1719 - Device cannot sign." format:@"%@", nil];
+                    }
+                    
+                    CFErrorRef signError = NULL;
+                    NSData *signatureBytes = (NSData*)CFBridgingRelease(SecKeyCreateSignature(privateKeyRef, kSecKeyAlgorithmECDSASignatureMessageX962SHA256, (CFDataRef)textToBeSigned, &signError));
+                    if (signError) {
+                        NSString *errorDesc = (__bridge_transfer NSString *)CFErrorCopyDescription(signError);
+                        CFRelease(signError);
+                        [NSException raise:@"E1720 - Signature creation." format:@"%@", errorDesc];
+                    }
+                    
+                    NSString *signatureBase64 = [signatureBytes base64EncodedStringWithOptions:0];
+                    [results addObject:@{@"type": @"sign", @"result": signatureBase64}];
+                    
+                } else if ([type isEqualToString:@"decrypt"]) {
+                    // Decryption Operation
+                    NSData *textToBeDecrypted = [[NSData alloc] initWithBase64EncodedString:data options:0];
+                    if (!textToBeDecrypted) {
+                        [NSException raise:@"E1718 - Invalid input." format:@"Input string is not a valid base64."];
+                    }
+                    
+                    BOOL canDecrypt = SecKeyIsAlgorithmSupported(privateKeyRef, kSecKeyOperationTypeDecrypt, kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM);
+                    
+                    if (!canDecrypt) {
+                        [NSException raise:@"E1759 - Device cannot decrypt." format:@"%@", nil];
+                    }
+                    
+                    CFErrorRef decryptError = NULL;
+                    NSData *clearText = (NSData*)CFBridgingRelease(
+                                                                   SecKeyCreateDecryptedData(privateKeyRef,
+                                                                                             kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM,
+                                                                                             (__bridge CFDataRef)textToBeDecrypted,
+                                                                                             &decryptError));
+                    
+                    if (decryptError) {
+                        NSString *errorDesc = (__bridge_transfer NSString *)CFErrorCopyDescription(decryptError);
+                        CFRelease(decryptError);
+                        [NSException raise:@"E1760 - Decryption error." format:@"%@", errorDesc];
+                    }
+                    
+                    NSString *base64EncodedResult = [clearText base64EncodedStringWithOptions:0];
+                    [results addObject:@{@"type": @"decrypt", @"result": base64EncodedResult}];
+                    
+                } else {
+                    [NSException raise:@"E1801 - Invalid operation type." format:@"Supported types are 'sign' and 'decrypt'."];
+                }
+            }
+            
+            if (privateKeyRef) { CFRelease(privateKeyRef); }
+            
+            resolve(results);
+        } @catch (NSException *exception) {
+            reject(exception.name, exception.reason, nil);
+        }
+    });
+}
+
 
 // HELPERS
 // ______________________________________________
