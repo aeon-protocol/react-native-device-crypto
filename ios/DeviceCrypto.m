@@ -296,7 +296,9 @@ typedef NS_ENUM(NSUInteger, AccessLevel) {
   }
   SecKeyRef publicKeyRef = SecKeyCopyPublicKey(privateKeyRef);
   [self savePublicKeyFromRef:publicKeyRef withAlias:alias];
-  return [self getPublicKeyAsPEM:alias];
+
+  //using base64 encoding for public key rather than PEM as we also use this in react native
+  return [self getPublicKeyBase64Encoded:alias];
 }
 
 // React-Native methods
