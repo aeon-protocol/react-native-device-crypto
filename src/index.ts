@@ -142,14 +142,14 @@ const DeviceCrypto = {
   },
 
     /**
-   * Decrypt the encrypted text with given IV
-   *
-   * @param {String} plainText Text to be signed
-   * @param {String} iv Base64 formatted IV
-   * @return {Promise} Resolves to decrypted text when successful
-   */
+     * Decrypt the encrypted text with given IV
+     *
+     * @param {String} plainText Text to be signed
+     * @param {String} iv Base64 formatted IV
+     * @return {Promise} Resolves to decrypted text when successful
+     */
     async processBatchOperations(
-      operations: {type:"sign"|"decrypt",data:string},
+      operations: Array<{type:"sign"|"decrypt", data:string}>,
       alias: string,
       options: BiometryParams
     ): Promise<string> {
