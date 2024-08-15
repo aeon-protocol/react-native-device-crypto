@@ -364,7 +364,22 @@ RCT_EXPORT_METHOD(cleanUp:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRe
 RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     @try {
         if (!self.privateKeyRef) {
-            [NSException raise:@"PrivateKeyError" format:@"Private key reference not initialized."];
+            NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
+            NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
+            NSDictionary *query = @{
+                (id)kSecClass: (id)kSecClassKey,
+                (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
+                (id)kSecAttrLabel: @"privateKey",
+                (id)kSecAttrApplicationTag: aliasData,
+                (id)kSecReturnRef: @YES,
+                (id)kSecUseAuthenticationContext: self.authenticationContext
+            };
+            SecKeyRef privateKeyRef = NULL;
+            OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
+            if (status != errSecSuccess) {
+                [NSException raise:@"PrivateKeyError" format:@"Private key reference not available or not authenticated."];
+            }
+            self.privateKeyRef = privateKeyRef;
         }
         NSData *textToBeSigned = [[NSData alloc] initWithBase64EncodedString:plainText options:0];
         if (!textToBeSigned) {
