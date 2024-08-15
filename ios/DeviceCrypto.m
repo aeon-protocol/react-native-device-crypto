@@ -317,7 +317,9 @@ RCT_EXPORT_METHOD(authenticate:(NSString *)alias options:(NSDictionary *)options
     NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
     self.authenticationContext.localizedFallbackTitle = ""; // Optional: customize or leave empty
 
+    NSLog(@"Starting biometric authentication");
     [self.authenticationContext evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics localizedReason:authMessage reply:^(BOOL success, NSError *error) {
+        NSLog(@"Authentication response: %d, error: %@", success, error);
         if (success) {
             NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
             NSDictionary *query = @{
@@ -330,8 +332,11 @@ RCT_EXPORT_METHOD(authenticate:(NSString *)alias options:(NSDictionary *)options
             };
             SecKeyRef privateKeyRef = NULL;
             OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
+            NSLog(@"SecItemCopyMatching status: %d", status);
+
             if (status == errSecSuccess) {
                 self.privateKeyRef = privateKeyRef;
+
                 resolve(@(YES));
             } else {
                 reject(@"E1701", @"Could not retrieve private key", error);
