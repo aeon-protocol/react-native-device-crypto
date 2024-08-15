@@ -364,6 +364,11 @@ RCT_EXPORT_METHOD(cleanUp:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRe
 RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     @try {
         if (!self.privateKeyRef) {
+            // Ensure authentication context is set up
+            if (!self.authenticationContext) {
+                self.authenticationContext = [[LAContext alloc] init];
+                self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust time as needed
+            }
             NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
             NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
             NSDictionary *query = @{
@@ -461,6 +466,11 @@ RCT_EXPORT_METHOD(encrypt:(nonnull NSString *)publicKeyBase64 withPlainText:(non
 RCT_EXPORT_METHOD(decrypt:(NSString *)alias withCipherText:(NSString *)cipherText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     @try {
         if (!self.privateKeyRef) {
+            // Ensure authentication context is set up
+            if (!self.authenticationContext) {
+                self.authenticationContext = [[LAContext alloc] init];
+                self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust time as needed
+            }
             NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
             NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
             NSDictionary *query = @{
