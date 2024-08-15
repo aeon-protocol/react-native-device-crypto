@@ -285,6 +285,8 @@ typedef NS_ENUM(NSUInteger, AccessLevel) {
 
 RCT_EXPORT_METHOD(createKey:(nonnull NSData *)alias withOptions:(nonnull NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
+    dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+
   @try {
     NSString *keyType = options[kKeyType];
     NSString* publicKey = [self getOrCreateKey:alias withOptions:options];
@@ -297,6 +299,8 @@ RCT_EXPORT_METHOD(createKey:(nonnull NSData *)alias withOptions:(nonnull NSDicti
   } @catch(NSException *err) {
     reject(err.name, err.reason, nil);
   }
+      });
+
 }
 
 RCT_EXPORT_METHOD(deleteKey:(nonnull NSData *)alias resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
@@ -309,42 +313,46 @@ RCT_EXPORT_METHOD(deleteKey:(nonnull NSData *)alias resolver:(RCTPromiseResolveB
 
 // Method to warm up and store the private key reference
 RCT_EXPORT_METHOD(authenticate:(NSString *)alias options:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    if (!self.authenticationContext) {
-        self.authenticationContext = [[LAContext alloc] init];
-        self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust time as needed
-    }
-    
-    NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
-    self.authenticationContext.localizedFallbackTitle = @""; // Optional: customize or leave empty
+  dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
 
-    NSLog(@"Starting biometric authentication");
-    [self.authenticationContext evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics localizedReason:authMessage reply:^(BOOL success, NSError *error) {
-        NSLog(@"Authentication response: %d, error: %@", success, error);
-        if (success) {
-            NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
-            NSDictionary *query = @{
-                (id)kSecClass: (id)kSecClassKey,
-                (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
-                (id)kSecAttrLabel: @"privateKey",
-                (id)kSecAttrApplicationTag: aliasData,
-                (id)kSecReturnRef: @YES,
-                (id)kSecUseAuthenticationContext: self.authenticationContext
-            };
-            SecKeyRef privateKeyRef = NULL;
-            OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
-            NSLog(@"SecItemCopyMatching status: %d", status);
-
-            if (status == errSecSuccess) {
-                self.privateKeyRef = privateKeyRef;
-
-                resolve(@(YES));
-            } else {
-                reject(@"E1701", @"Could not retrieve private key", error);
-            }
-        } else {
-            reject(@"AuthenticationError", error.localizedDescription, error);
+        if (!self.authenticationContext) {
+            self.authenticationContext = [[LAContext alloc] init];
+            self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust time as needed
         }
-    }];
+        
+        NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
+        self.authenticationContext.localizedFallbackTitle = @""; // Optional: customize or leave empty
+
+        NSLog(@"Starting biometric authentication");
+        [self.authenticationContext evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics localizedReason:authMessage reply:^(BOOL success, NSError *error) {
+            NSLog(@"Authentication response: %d, error: %@", success, error);
+            if (success) {
+                NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
+                NSDictionary *query = @{
+                    (id)kSecClass: (id)kSecClassKey,
+                    (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
+                    (id)kSecAttrLabel: @"privateKey",
+                    (id)kSecAttrApplicationTag: aliasData,
+                    (id)kSecReturnRef: @YES,
+                    (id)kSecUseAuthenticationContext: self.authenticationContext
+                };
+                SecKeyRef privateKeyRef = NULL;
+                OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
+                NSLog(@"SecItemCopyMatching status: %d", status);
+
+                if (status == errSecSuccess) {
+                    self.privateKeyRef = privateKeyRef;
+
+                    resolve(@(YES));
+                } else {
+                    reject(@"E1701", @"Could not retrieve private key", error);
+                }
+            } else {
+                reject(@"AuthenticationError", error.localizedDescription, error);
+            }
+        }];
+    });
+
 }
 
 
@@ -362,6 +370,8 @@ RCT_EXPORT_METHOD(cleanUp:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRe
 
 // Updated sign method using the stored private key reference
 RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+
     @try {
         if (!self.privateKeyRef) {
             // Ensure authentication context is set up
@@ -404,11 +414,15 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
     } @catch(NSException *exception) {
         reject(exception.name, exception.reason, nil);
     }
+        });
+
 }
 
 
 RCT_EXPORT_METHOD(encrypt:(nonnull NSString *)publicKeyBase64 withPlainText:(nonnull NSString *)plainText withOptions:(nonnull NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
+      dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+
   @try {
       CFErrorRef aerr = NULL;
       NSData* cipherText = nil;
@@ -459,11 +473,15 @@ RCT_EXPORT_METHOD(encrypt:(nonnull NSString *)publicKeyBase64 withPlainText:(non
   } @catch(NSException *err) {
       reject(err.name, err.description, nil);
   }
+          });
+
 }
 
 // Assuming the `privateKeyRef` is a property of your module
 
 RCT_EXPORT_METHOD(decrypt:(NSString *)alias withCipherText:(NSString *)cipherText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+          dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+
     @try {
         if (!self.privateKeyRef) {
             // Ensure authentication context is set up
@@ -507,6 +525,8 @@ RCT_EXPORT_METHOD(decrypt:(NSString *)alias withCipherText:(NSString *)cipherTex
     } @catch(NSException *exception) {
         reject(exception.name, exception.reason, nil);
     }
+              });
+
 }
 
 
