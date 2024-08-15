@@ -41,169 +41,101 @@ export enum SecurityLevel {
 }
 
 const DeviceCrypto = {
-  /**
-   * Create public/private key pair inside the secure hardware or get the existing public key
-   * Secure enclave/TEE/StrongBox
-   *
-   * Cryptography algorithms
-   * EC secp256k1 on iOS
-   * EC secp256r1 on Android
-   *
-   * @return {Promise} Resolves to public key when successful
-   */
-  async getOrCreateAsymmetricKey(
-    alias: string,
-    options: KeyCreationParams
-  ): Promise<string> {
-    return RNDeviceCrypto.createKey(alias, {
-      ...options,
-      keyType: KeyTypes.ASYMMETRIC,
-    });
-  },
+/**
+ * Authenticate using biometric authentication before using the private key.
+ */
+authenticate(alias: string, options: BiometryParams): Promise<void> {
+  return RNDeviceCrypto.authenticate(alias, options);
+},
 
-  /**
-   * Create AES key inside the secure hardware. Returns `true` if the key already exists.
-   * Secure enclave/TEE/StrongBox
-   *
-   * Cryptography algorithms AES256
-   *
-   * @return {Promise} Resolves to `true` when successful
-   */
-  async getOrCreateSymmetricKey(
-    alias: string,
-    options: KeyCreationParams
-  ): Promise<boolean> {
-    return RNDeviceCrypto.createKey(alias, {
-      ...options,
-      keyType: KeyTypes.SYMMETRIC,
-    });
-  },
+/**
+ * Clean up and release the private key reference.
+ */
+cleanUp(): Promise<void> {
+  return RNDeviceCrypto.cleanUp();
+},
 
-  /**
-   * Delete the key from secure hardware
-   *
-   * @return {Promise} Resolves to `true` when successful
-   */
-  async deleteKey(alias: string): Promise<boolean> {
-    return Boolean(RNDeviceCrypto.deleteKey(alias));
-  },
+/**
+ * Create or retrieve an asymmetric key pair from secure hardware.
+ */
+getOrCreateAsymmetricKey(alias: string, options: KeyCreationParams): Promise<string> {
+  return RNDeviceCrypto.getOrCreateAsymmetricKey(alias, options);
+},
 
-  /**
-   * Get the public key as PEM formatted
-   *
-   * @return {Promise} Resolves to public key when successful
-   */
-  async getPublicKey(alias: string): Promise<string> {
-    return RNDeviceCrypto.getPublicKey(alias);
-  },
+/**
+ * Delete a key from secure hardware.
+ */
+deleteKey(alias: string): Promise<boolean> {
+  return RNDeviceCrypto.deleteKey(alias);
+},
 
-  /**
-   * Signs the given text with given private key
-   *
-   * @param {String} plainText Text to be signed
-   * @return {Promise} Resolves to signature in `Base64` when successful
-   */
-  async sign(
-    alias: string,
-    plainText: string,
-    options: BiometryParams
-  ): Promise<string> {
-    return RNDeviceCrypto.sign(alias, plainText, options);
-  },
+/**
+ * Get the public key in PEM format.
+ */
+getPublicKey(alias: string): Promise<string> {
+  return RNDeviceCrypto.getPublicKey(alias);
+},
 
-  /**
-   * Encrypt the given text
-   *
-   * @param {String} plainText Text to be encrypted
-   * @return {Promise} Resolves to encrypted text `Base64` formatted
-   */
-  async encrypt(
-    publicKeyBase64: string,
-    plainText: string,
-    options: BiometryParams
-  ): Promise<EncryptionResult> {
-    return RNDeviceCrypto.encrypt(publicKeyBase64, plainText, options);
-  },
+/**
+ * Sign a text with the private key.
+ */
+sign(alias: string, plainText: string, options: BiometryParams): Promise<string> {
+  return RNDeviceCrypto.sign(alias, plainText, options);
+},
 
-  /**
-   * Decrypt the encrypted text with given IV
-   *
-   * @param {String} plainText Text to be signed
-   * @param {String} iv Base64 formatted IV
-   * @return {Promise} Resolves to decrypted text when successful
-   */
-  async decrypt(
-    alias: string,
-    plainText: string,
-    iv: string,
-    options: BiometryParams
-  ): Promise<string> {
-    return RNDeviceCrypto.decrypt(alias, plainText, iv, options);
-  },
+/**
+ * Encrypt text using a public key.
+ */
+encrypt(
+  publicKeyBase64: string,
+  plainText: string,
+  options: BiometryParams,
+): Promise<EncryptionResult> {
+  return RNDeviceCrypto.encrypt(publicKeyBase64, plainText, options);
+},
 
-    /**
-     * Decrypt the encrypted text with given IV
-     *
-     * @param {String} plainText Text to be signed
-     * @param {String} iv Base64 formatted IV
-     * @return {Promise} Resolves to decrypted text when successful
-     */
-    async processBatchOperations(
-      operations: Array<{type:"sign"|"decrypt", data:string}>,
-      alias: string,
-      options: BiometryParams
-    ): Promise<string> {
-      return RNDeviceCrypto.processBatchOperations(operations,alias,options);
-    },
+/**
+ * Decrypt encrypted text using the private key.
+ */
+decrypt(alias: string, plainText: string, options: BiometryParams): Promise<string> {
+  return RNDeviceCrypto.decrypt(alias, plainText, options);
+},
 
-  /**
-   * Checks the key existence
-   *
-   * @return {Promise} Resolves to `true` if exists
-   */
-  async isKeyExists(alias: string, keyType: KeyTypes): Promise<boolean> {
-    return RNDeviceCrypto.isKeyExists(alias, keyType);
-  },
+/**
+ * Check if a key exists in secure hardware.
+ */
+isKeyExists(alias: string, keyType: KeyTypes): Promise<boolean> {
+  return RNDeviceCrypto.isKeyExists(alias, keyType);
+},
 
-  /**
-   * Checks the biometry is enrolled on device
-   *
-   * @returns {Promise} Resolves `true` if biometry is enrolled on the device
-   */
-  async isBiometryEnrolled(): Promise<boolean> {
-    return RNDeviceCrypto.isBiometryEnrolled();
-  },
+/**
+ * Check if biometry is enrolled on the device.
+ */
+isBiometryEnrolled(): Promise<boolean> {
+  return RNDeviceCrypto.isBiometryEnrolled();
+},
 
-  /**
-   * Checks the device security level
-   *
-   * @return {Promise} Resolves one of `SecurityLevel`
-   */
-  async deviceSecurityLevel(): Promise<SecurityLevel> {
-    return RNDeviceCrypto.deviceSecurityLevel() as SecurityLevel;
-  },
+/**
+ * Get the security level of the device.
+ */
+deviceSecurityLevel(): Promise<SecurityLevel> {
+  return RNDeviceCrypto.deviceSecurityLevel();
+},
 
-  /**
-   * Returns biometry type already enrolled on the device
-   *
-   * @returns {Promise} Resolves `BiometryType`
-   */
-  async getBiometryType(): Promise<BiometryType> {
-    return RNDeviceCrypto.getBiometryType() as BiometryType;
-  },
+/**
+ * Get the type of biometry enrolled on the device.
+ */
+getBiometryType(): Promise<BiometryType> {
+  return RNDeviceCrypto.getBiometryType();
+},
 
-  /**
-   * Authenticate user with device biometry
-   *
-   * @returns {Promise} Resolves `true` if user passes biometry or fallback pin
-   */
-  async authenticateWithBiometry(options: BiometryParams): Promise<boolean> {
-    try {
-      return RNDeviceCrypto.authenticateWithBiometry(options);
-    } catch (err: any) {
-      throw err;
-    }
-  },
+/**
+ * Authenticate using device biometry.
+ */
+authenticateWithBiometry(options: BiometryParams): Promise<boolean> {
+  return RNDeviceCrypto.authenticateWithBiometry(options);
+},
+
 };
 
 export default DeviceCrypto;
