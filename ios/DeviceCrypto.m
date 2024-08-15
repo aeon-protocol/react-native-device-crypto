@@ -309,37 +309,61 @@ RCT_EXPORT_METHOD(deleteKey:(nonnull NSData *)alias resolver:(RCTPromiseResolveB
 
 // Method to warm up and store the private key reference
 RCT_EXPORT_METHOD(authenticate:(NSString *)alias options:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    NSString *authMessage = options[@"promptMessage"];
-    NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
-    self.privateKeyRef = [self getPrivateKeyRef:aliasData withMessage:authMessage];
-    
-    if (!self.privateKeyRef) {
-        reject(@"E1701", @"Could not retrieve private key", nil);
-    } else {
-        resolve(nil); // Successfully stored the private key reference
+    if (!self.authenticationContext) {
+        self.authenticationContext = [[LAContext alloc] init];
+        self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust time as needed
     }
+    
+    NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
+    self.authenticationContext.localizedFallbackTitle = ""; // Optional: customize or leave empty
+
+    [self.authenticationContext evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics localizedReason:authMessage reply:^(BOOL success, NSError *error) {
+        if (success) {
+            NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
+            NSDictionary *query = @{
+                (id)kSecClass: (id)kSecClassKey,
+                (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
+                (id)kSecAttrLabel: @"privateKey",
+                (id)kSecAttrApplicationTag: aliasData,
+                (id)kSecReturnRef: @YES,
+                (id)kSecUseAuthenticationContext: self.authenticationContext
+            };
+            SecKeyRef privateKeyRef = NULL;
+            OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
+            if (status == errSecSuccess) {
+                self.privateKeyRef = privateKeyRef;
+                resolve(@(YES));
+            } else {
+                reject(@"E1701", @"Could not retrieve private key", error);
+            }
+        } else {
+            reject(@"AuthenticationError", error.localizedDescription, error);
+        }
+    }];
 }
+
 
 // Method to clean up and release the private key reference
 RCT_EXPORT_METHOD(cleanUp:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     if (self.privateKeyRef) {
-        CFRelease(self.privateKeyRef);
-        self.privateKeyRef = nil;
+        CFRelease(self.privateKeyRef); // Release the SecKeyRef
+        self.privateKeyRef = nil;      // Nullify the pointer to prevent dangling references
     }
-    resolve(nil);
+    self.authenticationContext = nil; // Release the context to ensure it doesn't stay authenticated longer than needed
+    resolve(@(YES));
 }
+
 
 
 // Updated sign method using the stored private key reference
 RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
     @try {
+        if (!self.privateKeyRef) {
+            [NSException raise:@"PrivateKeyError" format:@"Private key reference not initialized."];
+        }
         NSData *textToBeSigned = [[NSData alloc] initWithBase64EncodedString:plainText options:0];
         if (!textToBeSigned) {
             [NSException raise:@"InvalidInput" format:@"Input string is not a valid base64."];
-        }
-
-        if (!self.privateKeyRef) {
-            [NSException raise:@"PrivateKeyError" format:@"Private key reference not initialized."];
         }
 
         CFErrorRef aerr = NULL;
@@ -356,6 +380,7 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
         reject(exception.name, exception.reason, nil);
     }
 }
+
 
 RCT_EXPORT_METHOD(encrypt:(nonnull NSString *)publicKeyBase64 withPlainText:(nonnull NSString *)plainText withOptions:(nonnull NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
@@ -413,48 +438,47 @@ RCT_EXPORT_METHOD(encrypt:(nonnull NSString *)publicKeyBase64 withPlainText:(non
 
 // Assuming the `privateKeyRef` is a property of your module
 
-RCT_EXPORT_METHOD(decrypt:(nonnull NSData *)alias 
-               withPlainText:(nonnull NSString *)plainText 
-               withOptions:(nonnull NSDictionary *)options 
-               resolver:(RCTPromiseResolveBlock)resolve 
-               rejecter:(RCTPromiseRejectBlock)reject)
-{
-  @try {
-    NSData *clearText = nil;
-    CFErrorRef aerr = NULL;
-    NSData *textToBeDecrypted = [[NSData alloc] initWithBase64EncodedString:plainText options:0];
-    
-    if (!textToBeDecrypted) {
-      [NSException raise:@"E1718 - Invalid input." format:@"Input string is not a valid base64."];
-    }
+RCT_EXPORT_METHOD(decrypt:(NSString *)alias withCipherText:(NSString *)cipherText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+    @try {
+        if (!self.privateKeyRef) {
+            NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
+            NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
+            NSDictionary *query = @{
+                (id)kSecClass: (id)kSecClassKey,
+                (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
+                (id)kSecAttrLabel: @"privateKey",
+                (id)kSecAttrApplicationTag: aliasData,
+                (id)kSecReturnRef: @YES,
+                (id)kSecUseAuthenticationContext: self.authenticationContext
+            };
+            SecKeyRef privateKeyRef = NULL;
+            OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
+            if (status != errSecSuccess) {
+                [NSException raise:@"PrivateKeyError" format:@"Private key reference not available or not authenticated."];
+            }
+            self.privateKeyRef = privateKeyRef;
+        }
+        NSData *dataToBeDecrypted = [[NSData alloc] initWithBase64EncodedString:cipherText options:0];
+        if (!dataToBeDecrypted) {
+            [NSException raise:@"InvalidInput" format:@"Cipher text is not valid base64."];
+        }
 
-    if (!self.privateKeyRef) {
-      NSString *authMessage = options[kAuthenticatePrompt];
-      self.privateKeyRef = [self getPrivateKeyRef:alias withMessage:authMessage];
+        CFErrorRef aerr = NULL;
+        NSData *clearTextData = (NSData*)CFBridgingRelease(SecKeyCreateDecryptedData(self.privateKeyRef, kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM, (__bridge CFDataRef)dataToBeDecrypted, &aerr));
+
+        if (!clearTextData || aerr) {
+            NSError *err = CFBridgingRelease(aerr);
+            reject(@"DecryptionError", @"Failed to decrypt data", err);
+            return;
+        }
+
+        NSString *resultString = [clearTextData base64EncodedStringWithOptions:0];
+        resolve(resultString);
+    } @catch(NSException *exception) {
+        reject(exception.name, exception.reason, nil);
     }
-    
-    BOOL canDecrypt = SecKeyIsAlgorithmSupported(self.privateKeyRef, kSecKeyOperationTypeDecrypt, kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM);
-    
-    if (!canDecrypt) {
-      [NSException raise:@"E1759 - Device cannot decrypt." format:nil];
-    }
-    
-    clearText = (NSData*)CFBridgingRelease(
-                                           SecKeyCreateDecryptedData(self.privateKeyRef,
-                                                                     kSecKeyAlgorithmECIESEncryptionCofactorVariableIVX963SHA256AESGCM,
-                                                                     (__bridge CFDataRef)textToBeDecrypted,
-                                                                     &aerr));
-    
-    if (!clearText || aerr) {
-      [NSException raise:@"E1760 - Decryption error." format:@"%@", aerr];
-    }
-    
-    NSString *base64EncodedResult = [clearText base64EncodedStringWithOptions:0];
-    resolve(base64EncodedResult);
-  } @catch(NSException *err) {
-    reject(err.name, err.description, nil);
-  }
 }
+
 
 // HELPERS
 // ______________________________________________

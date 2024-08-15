@@ -3,5 +3,6 @@
 
 @interface DeviceCrypto : NSObject <RCTBridgeModule>
 @property (nonatomic, assign) SecKeyRef privateKeyRef;
+@property (nonatomic, strong) LAContext *authenticationContext;
 
 @end
