@@ -315,7 +315,7 @@ RCT_EXPORT_METHOD(authenticate:(NSString *)alias options:(NSDictionary *)options
     }
     
     NSString *authMessage = options[@"promptMessage"] ?: @"Authenticate to use private key";
-    self.authenticationContext.localizedFallbackTitle = ""; // Optional: customize or leave empty
+    self.authenticationContext.localizedFallbackTitle = @""; // Optional: customize or leave empty
 
     NSLog(@"Starting biometric authentication");
     [self.authenticationContext evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics localizedReason:authMessage reply:^(BOOL success, NSError *error) {
