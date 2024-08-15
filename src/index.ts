@@ -58,9 +58,16 @@ cleanUp(): Promise<void> {
 /**
  * Create or retrieve an asymmetric key pair from secure hardware.
  */
-getOrCreateAsymmetricKey(alias: string, options: KeyCreationParams): Promise<string> {
-  return RNDeviceCrypto.getOrCreateAsymmetricKey(alias, options);
+async getOrCreateAsymmetricKey(
+  alias: string,
+  options: KeyCreationParams
+): Promise<string> {
+  return RNDeviceCrypto.createKey(alias, {
+    ...options,
+    keyType: KeyTypes.ASYMMETRIC,
+  });
 },
+
 
 /**
  * Delete a key from secure hardware.
