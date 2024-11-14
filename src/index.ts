@@ -1,10 +1,10 @@
+// index.ts
 import { NativeModules, Platform } from 'react-native';
 
-const { DeviceCrypto: RNDeviceCrypto, RNKeychainManager } = NativeModules;
+const { DeviceCrypto: RNDeviceCrypto } = NativeModules;
 
-/**
- * Enums
- */
+
+// enums.ts
 export enum AccessLevel {
   ALWAYS = 0,
   UNLOCKED_DEVICE = 1,
@@ -53,9 +53,7 @@ export enum AuthenticationType {
   DEVICE_PASSCODE = 'DEVICE_PASSCODE',
 }
 
-/**
- * Interfaces
- */
+// interfaces.ts
 export interface BiometryParams {
   promptMessage?: string;
   promptTitle?: string;
@@ -114,9 +112,50 @@ export interface AccessControlOption {
 }
 
 /**
- * DeviceCrypto Module
+ * Normalizes the options passed to setGenericPassword and getGenericPassword.
  */
-const DeviceCrypto = {
+export function normalizeOptions(
+  serviceOrOptions?: string | SetOptions | GetOptions | BaseOptions
+): SetOptions | GetOptions | BaseOptions {
+  if (typeof serviceOrOptions === 'string') {
+    return { service: serviceOrOptions };
+  }
+  return serviceOrOptions || {};
+}
+
+/**
+ * Normalizes the service option.
+ */
+export function normalizeServiceOption(
+  serviceOrOptions?: string | BaseOptions
+): BaseOptions {
+  if (typeof serviceOrOptions === 'string') {
+    return { service: serviceOrOptions };
+  }
+  return serviceOrOptions || {};
+}
+
+/**
+ * Normalizes the server option.
+ */
+export function normalizeServerOption(
+  serverOrOptions?: string | BaseOptions
+): BaseOptions {
+  if (typeof serverOrOptions === 'string') {
+    return { server: serverOrOptions };
+  }
+  return serverOrOptions || {};
+}
+
+
+
+
+/**
+ * Unified Crypto and Keychain Module
+ */
+const CryptoKeychain = {
+  // --- DeviceCrypto Methods ---
+  
   /**
    * Authenticate using biometric authentication before using the private key.
    */
@@ -151,7 +190,7 @@ const DeviceCrypto = {
   /**
    * Get the public key in PEM format.
    */
-  getPublicKey(alias: string): Promise<string> {
+  getPublicKey(alias: string): Promise<string | null> {
     return RNDeviceCrypto.getPublicKey(alias);
   },
 
@@ -222,14 +261,9 @@ const DeviceCrypto = {
   authenticateWithBiometry(options?: BiometryParams): Promise<boolean> {
     return RNDeviceCrypto.authenticateWithBiometry(options || {});
   },
-};
 
-export default DeviceCrypto;
+  // --- Keychain Methods ---
 
-/**
- * Keychain Module
- */
-export const Keychain = {
   /**
    * Saves the `username` and `password` combination for the given service.
    */
@@ -239,7 +273,7 @@ export const Keychain = {
     serviceOrOptions?: string | SetOptions
   ): Promise<false | Result> {
     const options = normalizeOptions(serviceOrOptions);
-    return RNKeychainManager.setGenericPasswordForOptions(
+    return RNDeviceCrypto.setGenericPasswordForOptions(
       options,
       username,
       password
@@ -253,7 +287,7 @@ export const Keychain = {
     serviceOrOptions?: string | GetOptions
   ): Promise<false | UserCredentials> {
     const options = normalizeOptions(serviceOrOptions);
-    return RNKeychainManager.getGenericPasswordForOptions(options);
+    return RNDeviceCrypto.getGenericPasswordForOptions(options);
   },
 
   /**
@@ -263,7 +297,7 @@ export const Keychain = {
     serviceOrOptions?: string | BaseOptions
   ): Promise<boolean> {
     const options = normalizeServiceOption(serviceOrOptions);
-    return RNKeychainManager.hasGenericPasswordForOptions(options);
+    return RNDeviceCrypto.hasGenericPasswordForOptions(options);
   },
 
   /**
@@ -273,14 +307,14 @@ export const Keychain = {
     serviceOrOptions?: string | BaseOptions
   ): Promise<boolean> {
     const options = normalizeServiceOption(serviceOrOptions);
-    return RNKeychainManager.resetGenericPasswordForOptions(options);
+    return RNDeviceCrypto.resetGenericPasswordForOptions(options);
   },
 
   /**
    * Gets all service keys used in generic password keychain entries.
    */
   getAllGenericPasswordServices(): Promise<string[]> {
-    return RNKeychainManager.getAllGenericPasswordServices();
+    return RNDeviceCrypto.getAllGenericPasswordServices();
   },
 
   /**
@@ -290,7 +324,7 @@ export const Keychain = {
     serverOrOptions: string | BaseOptions
   ): Promise<boolean> {
     const options = normalizeServerOption(serverOrOptions);
-    return RNKeychainManager.hasInternetCredentialsForOptions(options);
+    return RNDeviceCrypto.hasInternetCredentialsForOptions(options);
   },
 
   /**
@@ -302,7 +336,7 @@ export const Keychain = {
     password: string,
     options?: SetOptions
   ): Promise<false | Result> {
-    return RNKeychainManager.setInternetCredentialsForServer(
+    return RNDeviceCrypto.setInternetCredentialsForServer(
       server,
       username,
       password,
@@ -317,7 +351,7 @@ export const Keychain = {
     server: string,
     options?: GetOptions
   ): Promise<false | UserCredentials> {
-    return RNKeychainManager.getInternetCredentialsForServer(
+    return RNDeviceCrypto.getInternetCredentialsForServer(
       server,
       normalizeOptions(options)
     );
@@ -330,18 +364,17 @@ export const Keychain = {
     serverOrOptions: string | BaseOptions
   ): Promise<void> {
     const options = normalizeServerOption(serverOrOptions);
-    return RNKeychainManager.resetInternetCredentialsForOptions(options);
+    return RNDeviceCrypto.resetInternetCredentialsForOptions(options);
   },
 
   /**
    * Gets the type of biometric authentication supported by the device.
    */
   getSupportedBiometryType(): Promise<null | BiometryType> {
-    if (!RNKeychainManager.getSupportedBiometryType) {
+    if (!RNDeviceCrypto.getSupportedBiometryType) {
       return Promise.resolve(null);
     }
-
-    return RNKeychainManager.getSupportedBiometryType();
+    return RNDeviceCrypto.getSupportedBiometryType();
   },
 
   /**
@@ -356,7 +389,7 @@ export const Keychain = {
         )
       );
     }
-    return RNKeychainManager.requestSharedWebCredentials();
+    return RNDeviceCrypto.requestSharedWebCredentials();
   },
 
   /**
@@ -375,7 +408,7 @@ export const Keychain = {
         )
       );
     }
-    return RNKeychainManager.setSharedWebCredentialsForServer(
+    return RNDeviceCrypto.setSharedWebCredentialsForServer(
       server,
       username,
       password
@@ -389,10 +422,10 @@ export const Keychain = {
   canImplyAuthentication(
     options?: AuthenticationTypeOption
   ): Promise<boolean> {
-    if (!RNKeychainManager.canCheckAuthentication) {
+    if (!RNDeviceCrypto.canCheckAuthentication) {
       return Promise.resolve(false);
     }
-    return RNKeychainManager.canCheckAuthentication(options);
+    return RNDeviceCrypto.canCheckAuthentication(options);
   },
 
   /**
@@ -402,71 +435,14 @@ export const Keychain = {
   getSecurityLevel(
     options?: AccessControlOption
   ): Promise<null | SecurityLevel> {
-    if (!RNKeychainManager.getSecurityLevel) {
+    if (!RNDeviceCrypto.getSecurityLevel) {
       return Promise.resolve(null);
     }
-    return RNKeychainManager.getSecurityLevel(options);
+    return RNDeviceCrypto.getSecurityLevel(options);
   },
 };
 
 /**
- * Helper Functions (You need to implement these based on your codebase)
+ * Unified Module Export
  */
-function normalizeOptions(
-  serviceOrOptions?: string | SetOptions | GetOptions | BaseOptions
-): SetOptions | GetOptions | BaseOptions {
-  // Implement the normalization logic
-  if (typeof serviceOrOptions === 'string') {
-    return { service: serviceOrOptions };
-  }
-  return serviceOrOptions || {};
-}
-
-function normalizeServiceOption(
-  serviceOrOptions?: string | BaseOptions
-): BaseOptions {
-  // Implement the normalization logic
-  if (typeof serviceOrOptions === 'string') {
-    return { service: serviceOrOptions };
-  }
-  return serviceOrOptions || {};
-}
-
-function normalizeServerOption(
-  serverOrOptions?: string | BaseOptions
-): BaseOptions {
-  // Implement the normalization logic
-  if (typeof serverOrOptions === 'string') {
-    return { server: serverOrOptions };
-  }
-  return serverOrOptions || {};
-}
-
-export {
-  DeviceCrypto,
-  Keychain,
-  AccessLevel,
-  KeyTypes,
-  BiometryType,
-  SecurityLevel,
-  SecurityRules,
-  Accessible,
-  AccessControl,
-  AuthenticationType,
-  BiometryParams,
-  KeyCreationParams,
-  EncryptionResult,
-  UserCredentials,
-  Result,
-  BaseOptions,
-  SetOptions,
-  GetOptions,
-  AuthenticationTypeOption,
-  AccessControlOption,
-};
-
-/** @ignore */
-export default {
-  DeviceCrypto,
-  Keychain,
-};
+export default CryptoKeychain;
