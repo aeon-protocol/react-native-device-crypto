@@ -14,12 +14,6 @@ RCT_EXPORT_MODULE()
 
 #pragma mark - DeviceCrypto
 
-- (void)dealloc {
-  if (_privateKeyRef) {
-    CFRelease(_privateKeyRef);
-    _privateKeyRef = nil;
-  }
-}
 
 #define kKeyType @"keyType"
 #define kAccessLevel @"accessLevel"
@@ -352,14 +346,15 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
             }
 
             NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
-            NSDictionary *query = @{
+            NSMutableDictionary *query = [@{
                 (id)kSecClass: (id)kSecClassKey,
                 (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
                 (id)kSecAttrApplicationTag: aliasData,
                 (id)kSecReturnRef: @YES,
                 (id)kSecUseAuthenticationContext: self.authenticationContext,
                 (id)kSecUseAuthenticationUI: (id)kSecUseAuthenticationUISkip // Skip UI if possible
-            };
+            } mutableCopy];
+
             SecKeyRef privateKeyRef = NULL;
             OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
             NSLog(@"SecItemCopyMatching status: %d", status);
@@ -390,6 +385,7 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
                 query = [query mutableCopy];
                 query[(id)kSecUseAuthenticationContext] = self.authenticationContext;
                 status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
+
                 NSLog(@"SecItemCopyMatching retry status: %d", status);
             }
 
@@ -486,7 +482,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 return;
             }
 
-            NSDictionary *attributes = @{
+            NSMutableDictionary *attributes = [@{
                 (__bridge NSString *)kSecClass: (__bridge id)(kSecClassInternetPassword),
                 (__bridge NSString *)kSecAttrServer: server,
                 (__bridge NSString *)kSecAttrAccount: username,
@@ -495,7 +491,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
                 (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
                 (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
-            };
+            } mutableCopy];
 
             OSStatus osStatus = SecItemAdd((__bridge CFDictionaryRef)attributes, NULL);
 
@@ -527,6 +523,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 attributes = [attributes mutableCopy];
                 attributes[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
                 osStatus = SecItemAdd((__bridge CFDictionaryRef)attributes, NULL);
+
             }
 
             if (accessControl) {
@@ -597,7 +594,7 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 }
             }
 
-            NSDictionary *query = @{
+            NSMutableDictionary *query = [@{
                 (__bridge NSString *)kSecClass: (__bridge id)(kSecClassInternetPassword),
                 (__bridge NSString *)kSecAttrServer: server,
                 (__bridge NSString *)kSecReturnAttributes: (__bridge id)kCFBooleanTrue,
@@ -607,7 +604,8 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
                 (__bridge NSString *)kSecUseOperationPrompt: authenticationPrompt,
                 (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
-            };
+            } mutableCopy];
+
 
             // Look up server in the keychain
             CFTypeRef foundTypeRef = NULL;
@@ -638,6 +636,7 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 query = [query mutableCopy];
                 query[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
                 osStatus = SecItemCopyMatching((__bridge CFDictionaryRef)query, &foundTypeRef);
+
             }
 
             if (osStatus == errSecItemNotFound) {
@@ -788,6 +787,45 @@ RCT_EXPORT_METHOD(getPublicKey:(nonnull NSData *)alias resolver:(RCTPromiseResol
     OSStatus osStatus = SecItemDelete((__bridge CFDictionaryRef)query);
     return osStatus;
 }
+
+// Helper function to retrieve cloud synchronization option
+CFBooleanRef cloudSyncValue(NSDictionary *options) {
+    NSNumber *synchronizableOption = options[@"synchronizable"];
+    if (synchronizableOption && [synchronizableOption boolValue]) {
+        return kCFBooleanTrue;
+    } else {
+        return kCFBooleanFalse;
+    }
+}
+
+// Helper function to retrieve authentication prompt message
+NSString *authenticationPromptValue(NSDictionary *options) {
+    NSString *prompt = options[@"promptMessage"];
+    if (prompt) {
+        return prompt;
+    } else {
+        return @"Authenticate to proceed";
+    }
+}
+
+// Helper function to retrieve server value from options
+NSString *serverValue(NSDictionary *options) {
+    NSString *server = options[@"server"];
+    if (server) {
+        return server;
+    } else {
+        // Handle the case where server is not provided
+        return @"";
+    }
+}
+
+// Helper function to reject a promise with an NSError
+void rejectWithError(RCTPromiseRejectBlock reject, NSError *error) {
+    if (reject) {
+        reject([NSString stringWithFormat:@"%ld", (long)error.code], error.localizedDescription, error);
+    }
+}
+
 
 
 

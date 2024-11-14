@@ -1,30 +1,19 @@
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 
-const RNDeviceCrypto = NativeModules.DeviceCrypto;
+const { DeviceCrypto: RNDeviceCrypto, RNKeychainManager } = NativeModules;
 
-export interface BiometryParams {
-  biometryTitle: string;
-  biometrySubTitle: string;
-  biometryDescription: string;
-}
-
+/**
+ * Enums
+ */
 export enum AccessLevel {
   ALWAYS = 0,
   UNLOCKED_DEVICE = 1,
   AUTHENTICATION_REQUIRED = 2,
 }
-export interface KeyCreationParams {
-  accessLevel: AccessLevel;
-  invalidateOnNewBiometry?: boolean;
-}
 
 export enum KeyTypes {
   ASYMMETRIC = 0,
   SYMMETRIC = 1,
-}
-export interface EncryptionResult {
-  iv: string;
-  encryptedText: string;
 }
 
 export enum BiometryType {
@@ -40,109 +29,444 @@ export enum SecurityLevel {
   BIOMETRY = 'BIOMETRY',
 }
 
+export enum SecurityRules {
+  NONE = 'NONE',
+  AUTOMATIC_UPDATES = 'AUTOMATIC_UPDATES',
+}
+
+export enum Accessible {
+  WHEN_UNLOCKED = 'WHEN_UNLOCKED',
+  AFTER_FIRST_UNLOCK = 'AFTER_FIRST_UNLOCK',
+  ALWAYS = 'ALWAYS',
+  WHEN_PASSCODE_SET_THIS_DEVICE_ONLY = 'WHEN_PASSCODE_SET_THIS_DEVICE_ONLY',
+}
+
+export enum AccessControl {
+  USER_PRESENCE = 'USER_PRESENCE',
+  BIOMETRY_ANY = 'BIOMETRY_ANY',
+  BIOMETRY_CURRENT_SET = 'BIOMETRY_CURRENT_SET',
+  DEVICE_PASSCODE = 'DEVICE_PASSCODE',
+}
+
+export enum AuthenticationType {
+  BIOMETRICS = 'BIOMETRICS',
+  DEVICE_PASSCODE = 'DEVICE_PASSCODE',
+}
+
+/**
+ * Interfaces
+ */
+export interface BiometryParams {
+  promptMessage?: string;
+  promptTitle?: string;
+  promptSubtitle?: string;
+  promptDescription?: string;
+}
+
+export interface KeyCreationParams {
+  accessLevel: AccessLevel;
+  invalidateOnNewBiometry?: boolean;
+}
+
+export interface EncryptionResult {
+  iv: string;
+  encryptedText: string;
+}
+
+export interface UserCredentials {
+  service?: string;
+  server?: string;
+  username: string;
+  password: string;
+  storage?: string;
+}
+
+export interface Result {
+  service: string;
+  storage: string;
+}
+
+export interface BaseOptions {
+  service?: string;
+  server?: string;
+}
+
+export interface SetOptions extends BaseOptions {
+  accessible?: Accessible;
+  accessControl?: AccessControl;
+  authenticationPrompt?: string;
+  authenticationType?: AuthenticationType;
+  securityLevel?: SecurityLevel;
+  storage?: string;
+}
+
+export interface GetOptions extends BaseOptions {
+  authenticationPrompt?: string;
+  authenticationType?: AuthenticationType;
+}
+
+export interface AuthenticationTypeOption {
+  authenticationType?: AuthenticationType;
+}
+
+export interface AccessControlOption {
+  accessControl?: AccessControl;
+}
+
+/**
+ * DeviceCrypto Module
+ */
 const DeviceCrypto = {
-/**
- * Authenticate using biometric authentication before using the private key.
- */
-authenticate(alias: string, options: BiometryParams): Promise<void> {
-  return RNDeviceCrypto.authenticate(alias, options);
-},
+  /**
+   * Authenticate using biometric authentication before using the private key.
+   */
+  authenticate(options?: BiometryParams): Promise<void> {
+    return RNDeviceCrypto.authenticate(options || {});
+  },
 
-/**
- * Clean up and release the private key reference.
- */
-cleanUp(): Promise<void> {
-  return RNDeviceCrypto.cleanUp();
-},
+  /**
+   * Clean up and release the private key reference and authentication context.
+   */
+  cleanUp(): Promise<void> {
+    return RNDeviceCrypto.cleanUp();
+  },
 
-/**
- * Create or retrieve an asymmetric key pair from secure hardware.
- */
-async getOrCreateAsymmetricKey(
-  alias: string,
-  options: KeyCreationParams
-): Promise<string> {
-  return RNDeviceCrypto.createKey(alias, {
-    ...options,
-    keyType: KeyTypes.ASYMMETRIC,
-  });
-},
+  /**
+   * Create or retrieve an asymmetric key pair from secure hardware.
+   */
+  getOrCreateAsymmetricKey(
+    alias: string,
+    options: KeyCreationParams
+  ): Promise<string> {
+    return RNDeviceCrypto.getOrCreateAsymmetricKey(alias, options);
+  },
 
+  /**
+   * Delete a key from secure hardware.
+   */
+  deleteKey(alias: string): Promise<boolean> {
+    return RNDeviceCrypto.deleteKey(alias);
+  },
 
-/**
- * Delete a key from secure hardware.
- */
-deleteKey(alias: string): Promise<boolean> {
-  return RNDeviceCrypto.deleteKey(alias);
-},
+  /**
+   * Get the public key in PEM format.
+   */
+  getPublicKey(alias: string): Promise<string> {
+    return RNDeviceCrypto.getPublicKey(alias);
+  },
 
-/**
- * Get the public key in PEM format.
- */
-getPublicKey(alias: string): Promise<string> {
-  return RNDeviceCrypto.getPublicKey(alias);
-},
+  /**
+   * Sign a text with the private key.
+   */
+  sign(
+    alias: string,
+    plainText: string,
+    options?: BiometryParams
+  ): Promise<string> {
+    return RNDeviceCrypto.sign(alias, plainText, options || {});
+  },
 
-/**
- * Sign a text with the private key.
- */
-sign(alias: string, plainText: string, options: BiometryParams): Promise<string> {
-  return RNDeviceCrypto.sign(alias, plainText, options);
-},
+  /**
+   * Encrypt text using a public key.
+   */
+  encrypt(
+    publicKeyBase64: string,
+    plainText: string,
+    options?: BiometryParams
+  ): Promise<EncryptionResult> {
+    return RNDeviceCrypto.encrypt(publicKeyBase64, plainText, options || {});
+  },
 
-/**
- * Encrypt text using a public key.
- */
-encrypt(
-  publicKeyBase64: string,
-  plainText: string,
-  options: BiometryParams,
-): Promise<EncryptionResult> {
-  return RNDeviceCrypto.encrypt(publicKeyBase64, plainText, options);
-},
+  /**
+   * Decrypt encrypted text using the private key.
+   */
+  decrypt(
+    alias: string,
+    cipherText: string,
+    options?: BiometryParams
+  ): Promise<string> {
+    return RNDeviceCrypto.decrypt(alias, cipherText, options || {});
+  },
 
-/**
- * Decrypt encrypted text using the private key.
- */
-decrypt(alias: string, plainText: string, options: BiometryParams): Promise<string> {
-  return RNDeviceCrypto.decrypt(alias, plainText, options);
-},
+  /**
+   * Check if a key exists in secure hardware.
+   */
+  isKeyExists(alias: string, keyType: KeyTypes): Promise<boolean> {
+    return RNDeviceCrypto.isKeyExists(alias, keyType);
+  },
 
-/**
- * Check if a key exists in secure hardware.
- */
-isKeyExists(alias: string, keyType: KeyTypes): Promise<boolean> {
-  return RNDeviceCrypto.isKeyExists(alias, keyType);
-},
+  /**
+   * Check if biometry is enrolled on the device.
+   */
+  isBiometryEnrolled(): Promise<boolean> {
+    return RNDeviceCrypto.isBiometryEnrolled();
+  },
 
-/**
- * Check if biometry is enrolled on the device.
- */
-isBiometryEnrolled(): Promise<boolean> {
-  return RNDeviceCrypto.isBiometryEnrolled();
-},
+  /**
+   * Get the security level of the device.
+   */
+  deviceSecurityLevel(): Promise<SecurityLevel> {
+    return RNDeviceCrypto.deviceSecurityLevel();
+  },
 
-/**
- * Get the security level of the device.
- */
-deviceSecurityLevel(): Promise<SecurityLevel> {
-  return RNDeviceCrypto.deviceSecurityLevel();
-},
+  /**
+   * Get the type of biometry enrolled on the device.
+   */
+  getBiometryType(): Promise<BiometryType> {
+    return RNDeviceCrypto.getBiometryType();
+  },
 
-/**
- * Get the type of biometry enrolled on the device.
- */
-getBiometryType(): Promise<BiometryType> {
-  return RNDeviceCrypto.getBiometryType();
-},
-
-/**
- * Authenticate using device biometry.
- */
-authenticateWithBiometry(options: BiometryParams): Promise<boolean> {
-  return RNDeviceCrypto.authenticateWithBiometry(options);
-},
-
+  /**
+   * Authenticate using device biometry.
+   */
+  authenticateWithBiometry(options?: BiometryParams): Promise<boolean> {
+    return RNDeviceCrypto.authenticateWithBiometry(options || {});
+  },
 };
 
 export default DeviceCrypto;
+
+/**
+ * Keychain Module
+ */
+export const Keychain = {
+  /**
+   * Saves the `username` and `password` combination for the given service.
+   */
+  setGenericPassword(
+    username: string,
+    password: string,
+    serviceOrOptions?: string | SetOptions
+  ): Promise<false | Result> {
+    const options = normalizeOptions(serviceOrOptions);
+    return RNKeychainManager.setGenericPasswordForOptions(
+      options,
+      username,
+      password
+    );
+  },
+
+  /**
+   * Fetches the `username` and `password` combination for the given service.
+   */
+  getGenericPassword(
+    serviceOrOptions?: string | GetOptions
+  ): Promise<false | UserCredentials> {
+    const options = normalizeOptions(serviceOrOptions);
+    return RNKeychainManager.getGenericPasswordForOptions(options);
+  },
+
+  /**
+   * Checks if generic password exists for the given service.
+   */
+  hasGenericPassword(
+    serviceOrOptions?: string | BaseOptions
+  ): Promise<boolean> {
+    const options = normalizeServiceOption(serviceOrOptions);
+    return RNKeychainManager.hasGenericPasswordForOptions(options);
+  },
+
+  /**
+   * Deletes all generic password keychain entries for the given service.
+   */
+  resetGenericPassword(
+    serviceOrOptions?: string | BaseOptions
+  ): Promise<boolean> {
+    const options = normalizeServiceOption(serviceOrOptions);
+    return RNKeychainManager.resetGenericPasswordForOptions(options);
+  },
+
+  /**
+   * Gets all service keys used in generic password keychain entries.
+   */
+  getAllGenericPasswordServices(): Promise<string[]> {
+    return RNKeychainManager.getAllGenericPasswordServices();
+  },
+
+  /**
+   * Checks if internet credentials exist for the given server.
+   */
+  hasInternetCredentials(
+    serverOrOptions: string | BaseOptions
+  ): Promise<boolean> {
+    const options = normalizeServerOption(serverOrOptions);
+    return RNKeychainManager.hasInternetCredentialsForOptions(options);
+  },
+
+  /**
+   * Saves the internet credentials for the given server.
+   */
+  setInternetCredentials(
+    server: string,
+    username: string,
+    password: string,
+    options?: SetOptions
+  ): Promise<false | Result> {
+    return RNKeychainManager.setInternetCredentialsForServer(
+      server,
+      username,
+      password,
+      normalizeOptions(options)
+    );
+  },
+
+  /**
+   * Fetches the internet credentials for the given server.
+   */
+  getInternetCredentials(
+    server: string,
+    options?: GetOptions
+  ): Promise<false | UserCredentials> {
+    return RNKeychainManager.getInternetCredentialsForServer(
+      server,
+      normalizeOptions(options)
+    );
+  },
+
+  /**
+   * Deletes all internet password keychain entries for the given server.
+   */
+  resetInternetCredentials(
+    serverOrOptions: string | BaseOptions
+  ): Promise<void> {
+    const options = normalizeServerOption(serverOrOptions);
+    return RNKeychainManager.resetInternetCredentialsForOptions(options);
+  },
+
+  /**
+   * Gets the type of biometric authentication supported by the device.
+   */
+  getSupportedBiometryType(): Promise<null | BiometryType> {
+    if (!RNKeychainManager.getSupportedBiometryType) {
+      return Promise.resolve(null);
+    }
+
+    return RNKeychainManager.getSupportedBiometryType();
+  },
+
+  /**
+   * Request shared web credentials.
+   * @platform iOS
+   */
+  requestSharedWebCredentials(): Promise<false | UserCredentials> {
+    if (Platform.OS !== 'ios') {
+      return Promise.reject(
+        new Error(
+          `requestSharedWebCredentials() is not supported on ${Platform.OS} yet`
+        )
+      );
+    }
+    return RNKeychainManager.requestSharedWebCredentials();
+  },
+
+  /**
+   * Sets shared web credentials.
+   * @platform iOS
+   */
+  setSharedWebCredentials(
+    server: string,
+    username: string,
+    password?: string
+  ): Promise<void> {
+    if (Platform.OS !== 'ios') {
+      return Promise.reject(
+        new Error(
+          `setSharedWebCredentials() is not supported on ${Platform.OS} yet`
+        )
+      );
+    }
+    return RNKeychainManager.setSharedWebCredentialsForServer(
+      server,
+      username,
+      password
+    );
+  },
+
+  /**
+   * Checks if the current device supports the specified authentication policy.
+   * @platform iOS
+   */
+  canImplyAuthentication(
+    options?: AuthenticationTypeOption
+  ): Promise<boolean> {
+    if (!RNKeychainManager.canCheckAuthentication) {
+      return Promise.resolve(false);
+    }
+    return RNKeychainManager.canCheckAuthentication(options);
+  },
+
+  /**
+   * Returns the security level supported by the library on the current device.
+   * @platform Android
+   */
+  getSecurityLevel(
+    options?: AccessControlOption
+  ): Promise<null | SecurityLevel> {
+    if (!RNKeychainManager.getSecurityLevel) {
+      return Promise.resolve(null);
+    }
+    return RNKeychainManager.getSecurityLevel(options);
+  },
+};
+
+/**
+ * Helper Functions (You need to implement these based on your codebase)
+ */
+function normalizeOptions(
+  serviceOrOptions?: string | SetOptions | GetOptions | BaseOptions
+): SetOptions | GetOptions | BaseOptions {
+  // Implement the normalization logic
+  if (typeof serviceOrOptions === 'string') {
+    return { service: serviceOrOptions };
+  }
+  return serviceOrOptions || {};
+}
+
+function normalizeServiceOption(
+  serviceOrOptions?: string | BaseOptions
+): BaseOptions {
+  // Implement the normalization logic
+  if (typeof serviceOrOptions === 'string') {
+    return { service: serviceOrOptions };
+  }
+  return serviceOrOptions || {};
+}
+
+function normalizeServerOption(
+  serverOrOptions?: string | BaseOptions
+): BaseOptions {
+  // Implement the normalization logic
+  if (typeof serverOrOptions === 'string') {
+    return { server: serverOrOptions };
+  }
+  return serverOrOptions || {};
+}
+
+export {
+  DeviceCrypto,
+  Keychain,
+  AccessLevel,
+  KeyTypes,
+  BiometryType,
+  SecurityLevel,
+  SecurityRules,
+  Accessible,
+  AccessControl,
+  AuthenticationType,
+  BiometryParams,
+  KeyCreationParams,
+  EncryptionResult,
+  UserCredentials,
+  Result,
+  BaseOptions,
+  SetOptions,
+  GetOptions,
+  AuthenticationTypeOption,
+  AccessControlOption,
+};
+
+/** @ignore */
+export default {
+  DeviceCrypto,
+  Keychain,
+};
