@@ -8,18 +8,28 @@
 #import "DeviceCrypto.h"
 
 @implementation DeviceCrypto
+
 @synthesize bridge = _bridge;
 
-RCT_EXPORT_MODULE()
-
-#pragma mark - DeviceCrypto
-
-
+// Define constants for authentication types and access controls
 #define kKeyType @"keyType"
 #define kAccessLevel @"accessLevel"
 #define kInvalidateOnNewBiometry @"invalidateOnNewBiometry"
 #define kAuthenticatePrompt @"biometryDescription"
 #define kAuthenticationRequired @"Authentication is required"
+#define kAuthenticationType @"authenticationType"
+#define kAuthenticationTypeBiometrics @"Biometrics"
+#define kAuthenticationTypeBiometricsOrDevicePasscode @"BiometricsOrDevicePasscode"
+
+// Access Control Types
+#define kAccessControlType @"accessControl"
+#define kAccessControlUserPresence @"UserPresence"
+#define kAccessControlBiometryAny @"BiometryAny"
+#define kAccessControlBiometryCurrentSet @"BiometryCurrentSet"
+#define kAccessControlDevicePasscode @"DevicePasscode"
+#define kAccessControlApplicationPassword @"ApplicationPassword"
+#define kAccessControlBiometryAnyOrDevicePasscode @"BiometryAnyOrDevicePasscode"
+#define kAccessControlBiometryCurrentSetOrDevicePasscode @"BiometryCurrentSetOrDevicePasscode"
 
 typedef NS_ENUM(NSUInteger, KeyType) {
     ASYMMETRIC = 0,
@@ -32,31 +42,136 @@ typedef NS_ENUM(NSUInteger, AccessLevel) {
   AUTHENTICATION_REQUIRED = 2,
 };
 
+RCT_EXPORT_MODULE()
+
+#pragma mark - Helper Functions
+
+// Helper function to retrieve cloud synchronization option
+CFBooleanRef cloudSyncValue(NSDictionary *options) {
+    NSNumber *synchronizableOption = options[@"synchronizable"];
+    if (synchronizableOption && [synchronizableOption boolValue]) {
+        return kCFBooleanTrue;
+    } else {
+        return kCFBooleanFalse;
+    }
+}
+
+// Helper function to retrieve authentication prompt message
+NSString *authenticationPromptValue(NSDictionary *options) {
+    NSString *prompt = options[@"promptMessage"];
+    if (prompt) {
+        return prompt;
+    } else {
+        return @"Authenticate to proceed";
+    }
+}
+
+// Helper function to retrieve server value from options
+NSString *serverValue(NSDictionary *options) {
+    NSString *server = options[@"server"];
+    if (server) {
+        return server;
+    } else {
+        // Handle the case where server is not provided
+        return @"";
+    }
+}
+
+// Helper function to reject a promise with an NSError
+void rejectWithError(RCTPromiseRejectBlock reject, NSError *error) {
+    if (reject) {
+        reject([NSString stringWithFormat:@"%ld", (long)error.code], error.localizedDescription, error);
+    }
+}
+
+// Helper function to retrieve access control flags from options
+SecAccessControlCreateFlags accessControlValue(NSDictionary *options)
+{
+    if (options && options[kAccessControlType] && [options[kAccessControlType] isKindOfClass:[NSString class]]) {
+        if ([options[kAccessControlType] isEqualToString: kAccessControlUserPresence]) {
+            return kSecAccessControlUserPresence;
+        }
+        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryAny]) {
+            return kSecAccessControlBiometryAny;
+        }
+        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryCurrentSet]) {
+            return kSecAccessControlBiometryCurrentSet;
+        }
+        else if ([options[kAccessControlType] isEqualToString: kAccessControlDevicePasscode]) {
+            return kSecAccessControlDevicePasscode;
+        }
+        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryAnyOrDevicePasscode]) {
+            return kSecAccessControlBiometryAny | kSecAccessControlOr | kSecAccessControlDevicePasscode;
+        }
+        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryCurrentSetOrDevicePasscode]) {
+            return kSecAccessControlBiometryCurrentSet | kSecAccessControlOr | kSecAccessControlDevicePasscode;
+        }
+        else if ([options[kAccessControlType] isEqualToString: kAccessControlApplicationPassword]) {
+            return kSecAccessControlApplicationPassword;
+        }
+    }
+    return 0;
+}
+
+#pragma mark - Authentication Handling
+
+// Helper method to ensure authentication is in place
+- (void)ensureAuthenticationWithOptions:(NSDictionary *)options completion:(void (^)(BOOL success, NSError *error))completion {
+    // Initialize LAContext
+    self.authenticationContext = [[LAContext alloc] init];
+    self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust as needed
+    self.authenticationContext.localizedFallbackTitle = @""; // Optional: customize or leave empty
+    
+    // Set the authentication policy based on options
+    LAPolicy policy = LAPolicyDeviceOwnerAuthentication; // Default policy
+    
+    if (options[kAuthenticationType]) {
+        if ([options[kAuthenticationType] isEqualToString:kAuthenticationTypeBiometrics]) {
+            policy = LAPolicyDeviceOwnerAuthenticationWithBiometrics;
+        } else if ([options[kAuthenticationType] isEqualToString:kAuthenticationTypeBiometricsOrDevicePasscode]) {
+            policy = LAPolicyDeviceOwnerAuthentication;
+        }
+        // Add more policies as needed
+    }
+    
+    NSString *prompt = authenticationPromptValue(options);
+    
+    NSLog(@"Starting authentication with policy: %lu", (unsigned long)policy);
+    
+    // Perform authentication
+    [self.authenticationContext evaluatePolicy:policy
+                           localizedReason:prompt
+                                     reply:^(BOOL success, NSError *error) {
+        if (completion) {
+            completion(success, error);
+        }
+    }];
+}
+
+#pragma mark - Key Management Methods
+
 - (NSData *)getPublicKeyBits:(nonnull NSData*)alias
 {
     NSDictionary *query = @{
         (id)kSecClass:               (id)kSecClassKey,
         (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPublic,
         (id)kSecAttrLabel:           @"publicKey",
-        (id)kSecAttrApplicationTag:  (id)alias,
+        (id)kSecAttrApplicationTag:  alias,
         (id)kSecReturnData:          (id)kCFBooleanTrue,
         (id)kSecReturnRef:           (id)kCFBooleanTrue,
     };
 
-    SecKeyRef keyRef;
+    SecKeyRef keyRef = NULL;
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&keyRef);
     if (status == errSecSuccess) {
         // Get the data associated with kSecValueData from the returned dictionary
-        CFDataRef dataRef = (CFDataRef)CFDictionaryGetValue((CFDictionaryRef)keyRef, kSecValueData);
-        if (dataRef) {
-            return (__bridge NSData *)dataRef;
-        } else {
-            return nil;
-        }
+        NSData *data = CFBridgingRelease(SecKeyCopyExternalRepresentation(keyRef, NULL));
+        CFRelease(keyRef);
+        return data;
     } else if (status == errSecItemNotFound) {
         return nil;
     } else {
-        [NSException raise:@"Unexpected OSStatus" format:@"Status: %i", status];
+        [NSException raise:@"Unexpected OSStatus" format:@"Status: %d", (int)status];
     }
     return nil;
 }
@@ -74,237 +189,250 @@ typedef NS_ENUM(NSUInteger, AccessLevel) {
 
 - (bool) savePublicKeyFromRef:(nonnull SecKeyRef)publicKeyRef withAlias:(nonnull NSData*) alias
 {
-  NSDictionary* attributes =
-  @{
-    (id)kSecClass:              (id)kSecClassKey,
-    (id)kSecAttrKeyClass:       (id)kSecAttrKeyClassPublic,
-    (id)kSecAttrLabel:          @"publicKey",
-    (id)kSecAttrApplicationTag: (id)alias,
-    (id)kSecValueRef:           (__bridge id)publicKeyRef,
-    (id)kSecAttrIsPermanent:    (id)kCFBooleanTrue,
-  };
-  
-  OSStatus status = SecItemAdd((CFDictionaryRef)attributes, nil);
-  while (status == errSecDuplicateItem)
-  {
-    status = SecItemDelete((CFDictionaryRef)attributes);
-  }
-  status = SecItemAdd((CFDictionaryRef)attributes, nil);
-  
-  return true;
+    NSDictionary* attributes =
+    @{
+      (id)kSecClass:              (id)kSecClassKey,
+      (id)kSecAttrKeyClass:       (id)kSecAttrKeyClassPublic,
+      (id)kSecAttrLabel:          @"publicKey",
+      (id)kSecAttrApplicationTag: alias,
+      (id)kSecValueRef:           (__bridge id)publicKeyRef,
+      (id)kSecAttrIsPermanent:    (id)kCFBooleanTrue,
+    };
+    
+    OSStatus status = SecItemAdd((CFDictionaryRef)attributes, nil);
+    if (status == errSecDuplicateItem) {
+        // Delete existing item before adding
+        SecItemDelete((CFDictionaryRef)attributes);
+        status = SecItemAdd((CFDictionaryRef)attributes, nil);
+    }
+    
+    if (status != errSecSuccess) {
+        [NSException raise:@"KeychainError" format:@"Failed to save public key. OSStatus: %d", (int)status];
+    }
+    
+    return true;
 }
 
 - (bool) deletePublicKey:(nonnull NSData*) alias
 {
-  NSDictionary *query = @{
-    (id)kSecClass:               (id)kSecClassKey,
-    (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPublic,
-    (id)kSecAttrLabel:           @"publicKey",
-    (id)kSecAttrApplicationTag:  (id)alias,
-  };
-  OSStatus status = SecItemDelete((CFDictionaryRef) query);
-  while (status == errSecDuplicateItem)
-  {
-    status = SecItemDelete((CFDictionaryRef) query);
-  }
-  return true;
+    NSDictionary *query = @{
+        (id)kSecClass:               (id)kSecClassKey,
+        (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPublic,
+        (id)kSecAttrLabel:           @"publicKey",
+        (id)kSecAttrApplicationTag:  alias,
+    };
+    OSStatus status = SecItemDelete((CFDictionaryRef) query);
+    if (status != errSecSuccess && status != errSecItemNotFound) {
+        [NSException raise:@"KeychainError" format:@"Failed to delete public key. OSStatus: %d", (int)status];
+    }
+    return true;
 }
 
 - (SecKeyRef) getPrivateKeyRef:(nonnull NSData*)alias withMessage:(NSString *)authPromptMessage
 {
-  NSString *authenticationPrompt = @"Authenticate to retrieve secret";
-  if (authPromptMessage) {
-    authenticationPrompt = authPromptMessage;
-  }
-  NSDictionary *query = @{
-    (id)kSecClass:               (id)kSecClassKey,
-    (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPrivate,
-    (id)kSecAttrLabel:           @"privateKey",
-    (id)kSecAttrApplicationTag:  (id)alias,
-    (id)kSecReturnRef:           (id)kCFBooleanTrue,
-    (id)kSecUseOperationPrompt:  authenticationPrompt,
-  };
-  
-  CFTypeRef resultTypeRef = NULL;
-  OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef) query,  (CFTypeRef *)&resultTypeRef);
-  if (status == errSecSuccess)
-    return (SecKeyRef)resultTypeRef;
-  else if (status == errSecItemNotFound)
+    NSString *authenticationPrompt = @"Authenticate to retrieve secret";
+    if (authPromptMessage) {
+        authenticationPrompt = authPromptMessage;
+    }
+    NSDictionary *query = @{
+        (id)kSecClass:               (id)kSecClassKey,
+        (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPrivate,
+        (id)kSecAttrLabel:           @"privateKey",
+        (id)kSecAttrApplicationTag:  alias,
+        (id)kSecReturnRef:           (id)kCFBooleanTrue,
+        (id)kSecUseOperationPrompt:  authenticationPrompt,
+    };
+    
+    CFTypeRef resultTypeRef = NULL;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef) query,  (CFTypeRef *)&resultTypeRef);
+    if (status == errSecSuccess)
+        return (SecKeyRef)resultTypeRef;
+    else if (status == errSecItemNotFound)
+        return nil;
+    else
+        [NSException raise:@"E1715: Unexpected OSStatus" format:@"Status: %d", (int)status];
     return nil;
-  else
-    [NSException raise:@"E1715: Unexpected OSStatus" format:@"Status: %i", (int)status];
-  return nil;
 }
-
-
-//putting in separate function to make user only do one face scan for multiple operations
-// - (SecKeyRef)retrievePrivateKeyRef:(nonnull NSData *)alias withMessage:(NSString *)authMessage error:(NSError **)error {
-//     @try {
-//         return [self getPrivateKeyRef:alias withMessage:authMessage];
-//     } @catch (NSException *exception) {
-//         if (error) {
-//             *error = [NSError errorWithDomain:@"PrivateKeyRetrievalError"
-//                                          code:1001
-//                                      userInfo:@{NSLocalizedDescriptionKey: exception.description}];
-//         }
-//         return nil;
-//     }
-// }
 
 - (bool) deletePrivateKey:(nonnull NSData*) alias
 {
-  NSDictionary *query = @{
-    (id)kSecClass:               (id)kSecClassKey,
-    (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPrivate,
-    (id)kSecAttrLabel:           @"privateKey",
-    (id)kSecAttrApplicationTag:  (id)alias,
-  };
-  OSStatus status = SecItemDelete((CFDictionaryRef) query);
-  while (status == errSecDuplicateItem)
-  {
-    status = SecItemDelete((CFDictionaryRef) query);
-  }
-  return true;
+    NSDictionary *query = @{
+        (id)kSecClass:               (id)kSecClassKey,
+        (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPrivate,
+        (id)kSecAttrLabel:           @"privateKey",
+        (id)kSecAttrApplicationTag:  alias,
+    };
+    OSStatus status = SecItemDelete((CFDictionaryRef) query);
+    if (status != errSecSuccess && status != errSecItemNotFound) {
+        [NSException raise:@"KeychainError" format:@"Failed to delete private key. OSStatus: %d", (int)status];
+    }
+    return true;
+}
+
+- (SecKeyRef) getPrivateKeyRefWithAuthentication:(nonnull NSData*)alias withMessage:(NSString *)authPromptMessage
+{
+    return [self getPrivateKeyRef:alias withMessage:authPromptMessage];
 }
 
 - (BOOL) hasBiometry {
-  NSError *aerr = nil;
-  LAContext *context = [[LAContext alloc] init];
-  return [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&aerr];
+    NSError *aerr = nil;
+    LAContext *context = [[LAContext alloc] init];
+    return [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:&aerr];
 }
 
 - (BOOL) hasPassCode {
-  NSError *aerr = nil;
-  LAContext *context = [[LAContext alloc] init];
-  return [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication error:&aerr];
+    NSError *aerr = nil;
+    LAContext *context = [[LAContext alloc] init];
+    return [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication error:&aerr];
 }
 
 - (NSString*) getOrCreateKey:(nonnull NSData*) alias withOptions:(nonnull NSDictionary *)options
 {
-  SecKeyRef privateKeyRef = [self getPrivateKeyRef:alias withMessage:kAuthenticationRequired];
-  if (privateKeyRef != nil) {
+    SecKeyRef privateKeyRef = [self getPrivateKeyRef:alias withMessage:kAuthenticationRequired];
+    if (privateKeyRef != nil) {
+        CFRelease(privateKeyRef);
+        return [self getPublicKeyBase64Encoded:alias];
+    }
+
+    CFErrorRef error = nil;
+    CFStringRef keyAccessLevel = kSecAttrAccessibleAfterFirstUnlock;
+    SecAccessControlCreateFlags acFlag = kSecAccessControlPrivateKeyUsage;
+    int accessLevel = [options[kAccessLevel] intValue];
+    BOOL invalidateOnNewBiometry = options[kInvalidateOnNewBiometry] && [options[kInvalidateOnNewBiometry] boolValue];
+    
+    switch(accessLevel) {
+        case UNLOCKED_DEVICE:
+            if (![self hasPassCode]) {
+                [NSException raise:@"E1771" format:@"The device cannot meet requirements. No passcode has been set."];
+            }
+            keyAccessLevel = kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
+            acFlag = kSecAccessControlPrivateKeyUsage;
+            break;
+        case AUTHENTICATION_REQUIRED:
+            if (![self hasBiometry]) {
+                [NSException raise:@"E1771" format:@"The device cannot meet requirements. No biometry has been enrolled."];
+            }
+            keyAccessLevel = kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
+            if (@available(iOS 11.3, *)) {
+                acFlag = invalidateOnNewBiometry ? (kSecAccessControlBiometryCurrentSet | kSecAccessControlPrivateKeyUsage) : (kSecAccessControlBiometryAny | kSecAccessControlPrivateKeyUsage);
+            } else {
+                acFlag = kSecAccessControlPrivateKeyUsage;
+            }
+            break;
+        default: // ALWAYS
+            keyAccessLevel = kSecAttrAccessibleAfterFirstUnlock;
+            acFlag = kSecAccessControlPrivateKeyUsage;
+    }
+    
+    SecAccessControlRef acRef = SecAccessControlCreateWithFlags(kCFAllocatorDefault, keyAccessLevel, acFlag, &error);
+    
+    if (!acRef) {
+        [NSException raise:@"E1711" format:@"Could not create access control. Error: %@", (__bridge NSError *)error];
+    }
+    
+    NSDictionary* attributes =
+    @{ 
+        (id)kSecAttrKeyType:        (id)kSecAttrKeyTypeECSECPrimeRandom,
+        (id)kSecAttrTokenID:        (id)kSecAttrTokenIDSecureEnclave,
+        (id)kSecAttrKeySizeInBits:  @256,
+        (id)kSecPrivateKeyAttrs:
+           @{
+               (id)kSecAttrLabel:          @"privateKey",
+               (id)kSecAttrApplicationTag: alias,
+               (id)kSecAttrIsPermanent:    (id)kCFBooleanTrue,
+               (id)kSecAttrAccessControl:  (__bridge id)acRef
+           },
+        (id)kSecPublicKeyAttrs:
+           @{
+               (id)kSecAttrIsPermanent:    (id)kCFBooleanFalse,
+           },
+    };
+    
+    privateKeyRef = SecKeyCreateRandomKey((__bridge CFDictionaryRef)attributes, &error);
+    if (!privateKeyRef){
+        [NSException raise:@"E1712" format:@"SecKeyCreateRandomKey could not create key. Error: %@", (__bridge NSError *)error];
+    }
+    
+    SecKeyRef publicKeyRef = SecKeyCopyPublicKey(privateKeyRef);
+    [self savePublicKeyFromRef:publicKeyRef withAlias:alias];
+    CFRelease(publicKeyRef);
+    CFRelease(privateKeyRef);
+    
+    // Using base64 encoding for public key rather than PEM as we also use this in react native
     return [self getPublicKeyBase64Encoded:alias];
-  }
-
-  CFErrorRef error = nil;
-  CFStringRef keyAccessLevel = kSecAttrAccessibleAfterFirstUnlock;
-  SecAccessControlCreateFlags acFlag = kSecAccessControlPrivateKeyUsage;
-  int accessLevel = [options[kAccessLevel] intValue];
-  BOOL invalidateOnNewBiometry = options[kInvalidateOnNewBiometry] && [options[kInvalidateOnNewBiometry] boolValue];
-  
-  switch(accessLevel) {
-    case UNLOCKED_DEVICE:
-      if (![self hasPassCode]) {
-        [NSException raise:@"E1771" format:@"The device cannot meet requirements. No passcode has been set."];
-      }
-      keyAccessLevel = kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
-      acFlag = kSecAccessControlPrivateKeyUsage;
-      break;
-    case AUTHENTICATION_REQUIRED:
-      if (![self hasBiometry]) {
-        [NSException raise:@"E1771" format:@"The device cannot meet requirements. No biometry has been enrolled."];
-      }
-      keyAccessLevel = kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
-      if (@available(iOS 11.3, *)) {
-          acFlag = invalidateOnNewBiometry ? kSecAccessControlBiometryCurrentSet | kSecAccessControlPrivateKeyUsage : kSecAccessControlBiometryAny | kSecAccessControlPrivateKeyUsage;
-      } else {
-        acFlag = kSecAccessControlPrivateKeyUsage;
-      }
-      break;
-    default: // ALWAYS
-      keyAccessLevel = kSecAttrAccessibleAfterFirstUnlock;
-      acFlag = kSecAccessControlPrivateKeyUsage;
-  }
-  
-  SecAccessControlRef acRef = SecAccessControlCreateWithFlags(kCFAllocatorDefault, keyAccessLevel, acFlag, &error);
-  
-  if (!acRef) {
-    [NSException raise:@"E1711" format:@"Could not create access control."];
-  }
-  
-  NSDictionary* attributes =
-  @{ (id)kSecAttrKeyType:        (id)kSecAttrKeyTypeECSECPrimeRandom,
-     (id)kSecAttrTokenID:        (id)kSecAttrTokenIDSecureEnclave,
-     (id)kSecAttrKeySizeInBits:  @256,
-     (id)kSecPrivateKeyAttrs:
-       @{
-         (id)kSecAttrLabel:          @"privateKey",
-         (id)kSecAttrApplicationTag: alias,
-         (id)kSecAttrIsPermanent:    (id)kCFBooleanTrue,
-         (id)kSecAttrAccessControl:  (__bridge id)acRef
-       },
-         (id)kSecPublicKeyAttrs:
-            @{
-              (id)kSecAttrIsPermanent:    (id)kCFBooleanFalse,
-            },
-  };
-  
-  privateKeyRef = SecKeyCreateRandomKey((__bridge CFDictionaryRef)attributes, &error);
-  if (!privateKeyRef){
-    [NSException raise:@"E1712" format:@"SecKeyCreate could not create key."];
-  }
-  SecKeyRef publicKeyRef = SecKeyCopyPublicKey(privateKeyRef);
-  [self savePublicKeyFromRef:publicKeyRef withAlias:alias];
-
-  //using base64 encoding for public key rather than PEM as we also use this in react native
-  return [self getPublicKeyBase64Encoded:alias];
 }
 
-// React-Native methods
+#pragma mark - React-Native Methods
+
 #if TARGET_OS_IOS
 
-
-
-
-RCT_EXPORT_METHOD(createKey:(nonnull NSData *)alias withOptions:(nonnull NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+// Create Key
+RCT_EXPORT_METHOD(createKey:(NSString *)alias 
+                  withOptions:(NSDictionary *)options 
+                  resolver:(RCTPromiseResolveBlock)resolve 
+                  rejecter:(RCTPromiseRejectBlock)reject)
 {
-    dispatch_async(dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-
-  @try {
-    NSString *keyType = options[kKeyType];
-    NSString* publicKey = [self getOrCreateKey:alias withOptions:options];
-    
-    if (keyType.intValue == ASYMMETRIC) {
-      resolve(publicKey);
-    } else {
-      resolve(publicKey != nil ? @(YES) : @(NO));
-    }
-  } @catch(NSException *err) {
-    reject(err.name, err.reason, nil);
-  }
-      });
-
-}
-
-RCT_EXPORT_METHOD(deleteKey:(nonnull NSData *)alias resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-{
-  [self deletePublicKey:alias];
-  [self deletePrivateKey:alias];
-  
-  return resolve(@(YES));
-}
-
-// Method to perform biometric authentication and set up LAContext
-RCT_EXPORT_METHOD(authenticate:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-    // Retrieve custom prompt message or use default
-    NSString *authPrompt = options[@"promptMessage"] ?: @"Authenticate to proceed";
-
-    [self ensureAuthenticationWithPrompt:authPrompt completion:^(BOOL success, NSError *error) {
-        // Ensure callbacks are called on the main thread
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (success) {
-                resolve(@(YES));
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        @try {
+            NSString *keyType = options[kKeyType];
+            NSString* publicKey = [self getOrCreateKey:[alias dataUsingEncoding:NSUTF8StringEncoding] withOptions:options];
+            
+            if (keyType.intValue == ASYMMETRIC) {
+                resolve(publicKey);
             } else {
-                reject(@"AuthenticationError", error.localizedDescription, error);
+                resolve(publicKey != nil ? @(YES) : @(NO));
             }
-        });
-    }];
+        } @catch(NSException *err) {
+            reject(err.name, err.reason, nil);
+        }
+    });
 }
 
+// Delete Key
+RCT_EXPORT_METHOD(deleteKey:(NSString *)alias 
+                  resolver:(RCTPromiseResolveBlock)resolve 
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        @try {
+            NSData *aliasData = [alias dataUsingEncoding:NSUTF8StringEncoding];
+            [self deletePublicKey:aliasData];
+            [self deletePrivateKey:aliasData];
+            resolve(@(YES));
+        } @catch (NSException *exception) {
+            reject(exception.name, exception.reason, nil);
+        }
+    });
+}
 
+// Authenticate
+RCT_EXPORT_METHOD(authenticate:(NSDictionary *)options 
+                  resolver:(RCTPromiseResolveBlock)resolve 
+                  rejecter:(RCTPromiseRejectBlock)reject) 
+{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        // Retrieve custom prompt message or use default
+        NSString *authPrompt = authenticationPromptValue(options);
+    
+        [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
+            // Ensure callbacks are called on the main thread
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (success) {
+                    resolve(@(YES));
+                } else {
+                    // Reset authenticationContext on failure
+                    self.authenticationContext = nil;
+                    reject(@"AuthenticationError", error.localizedDescription, error);
+                }
+            });
+        }];
+    });
+}
 
-// Method to clean up and release the LAContext
-RCT_EXPORT_METHOD(cleanUp:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+// Clean Up
+RCT_EXPORT_METHOD(cleanUp:(RCTPromiseResolveBlock)resolve 
+                  rejecter:(RCTPromiseRejectBlock)reject) 
+{
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
             if (self.authenticationContext) {
@@ -317,20 +445,23 @@ RCT_EXPORT_METHOD(cleanUp:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRe
     });
 }
 
-
-
-// Updated sign method with graceful authentication handling
-RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText withOptions:(NSDictionary *)options resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+// Sign Data
+RCT_EXPORT_METHOD(sign:(NSString *)alias 
+             withPlainText:(NSString *)plainText 
+             withOptions:(NSDictionary *)options 
+             resolver:(RCTPromiseResolveBlock)resolve 
+             rejecter:(RCTPromiseRejectBlock)reject) 
+{
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
             // Check if authentication context is set; if not, authenticate
             if (!self.authenticationContext) {
-                NSString *authPrompt = options[@"promptMessage"] ?: @"Authenticate to sign data";
+                NSString *authPrompt = authenticationPromptValue(options) ?: @"Authenticate to sign data";
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -340,6 +471,8 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
                 dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
                 if (!authSuccess) {
+                    // Reset authentication context on failure
+                    self.authenticationContext = nil;
                     reject(@"AuthenticationError", authError.localizedDescription, authError);
                     return;
                 }
@@ -357,17 +490,17 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
 
             SecKeyRef privateKeyRef = NULL;
             OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
-            NSLog(@"SecItemCopyMatching status: %d", status);
+            NSLog(@"SecItemCopyMatching status: %d", (int)status);
 
             if (status == errSecInteractionNotAllowed) {
                 // Authentication session may have expired, retry authentication
                 self.authenticationContext = nil; // Reset the context
-                NSString *authPrompt = options[@"promptMessage"] ?: @"Authenticate to sign data";
+                NSString *authPrompt = authenticationPromptValue(options) ?: @"Authenticate to sign data";
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -382,11 +515,9 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
                 }
 
                 // Retry retrieving the private key with new authentication context
-                query = [query mutableCopy];
-                query[(id)kSecUseAuthenticationContext] = self.authenticationContext;
+                query[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
                 status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&privateKeyRef);
-
-                NSLog(@"SecItemCopyMatching retry status: %d", status);
+                NSLog(@"SecItemCopyMatching retry status: %d", (int)status);
             }
 
             if (status != errSecSuccess || !privateKeyRef) {
@@ -428,21 +559,20 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias withPlainText:(NSString *)plainText wit
     });
 }
 
+#pragma mark - Keychain Credential Management
 
-//from react-native-keychain with LAContext
-// Method to set internet credentials for a server with LAContext
-// Updated setInternetCredentialsForServer method with graceful authentication handling
+// Set Internet Credentials with Graceful Authentication Handling
 RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
-                      withUsername:(NSString *)username
-                      withPassword:(NSString *)password
-                      withOptions:(NSDictionary *)options
-                      resolver:(RCTPromiseResolveBlock)resolve
-                      rejecter:(RCTPromiseRejectBlock)reject)
+                  withUsername:(NSString *)username
+                  withPassword:(NSString *)password
+                  withOptions:(NSDictionary *)options
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
             CFBooleanRef cloudSync = cloudSyncValue(options);
-            NSString *authenticationPrompt = options[@"promptMessage"] ?: @"Authenticate to save credentials";
+            NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to save credentials";
 
             // Check if authentication context is set; if not, authenticate
             if (!self.authenticationContext) {
@@ -450,7 +580,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authenticationPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -460,6 +590,8 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
                 if (!authSuccess) {
+                    // Clear authentication context on failure
+                    self.authenticationContext = nil;
                     reject(@"AuthenticationError", authError.localizedDescription, authError);
                     return;
                 }
@@ -468,12 +600,12 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
             // Delete existing credentials
             [self deleteCredentialsForServer:server withOptions:options];
 
-            // Create access control
+            // Create access control based on options
             CFErrorRef error = NULL;
             SecAccessControlRef accessControl = SecAccessControlCreateWithFlags(
                 kCFAllocatorDefault,
                 kSecAttrAccessibleWhenUnlocked,
-                kSecAccessControlUserPresence, // Requires user presence (biometric or passcode)
+                accessControlValue(options), // Customized access control
                 &error
             );
             if (error) {
@@ -502,7 +634,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authenticationPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -515,15 +647,15 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                     if (accessControl) {
                         CFRelease(accessControl);
                     }
+                    // Clear authentication context on failure
+                    self.authenticationContext = nil;
                     reject(@"AuthenticationError", authError.localizedDescription, authError);
                     return;
                 }
 
                 // Retry adding the item with new authentication context
-                attributes = [attributes mutableCopy];
                 attributes[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
                 osStatus = SecItemAdd((__bridge CFDictionaryRef)attributes, NULL);
-
             }
 
             if (accessControl) {
@@ -561,12 +693,11 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
     });
 }
 
-
-// Updated getInternetCredentialsForServer method with graceful authentication handling
+// Get Internet Credentials with Graceful Authentication Handling
 RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
-                      withOptions:(NSDictionary * __nullable)options
-                      resolver:(RCTPromiseResolveBlock)resolve
-                      rejecter:(RCTPromiseRejectBlock)reject)
+                  withOptions:(NSDictionary * __nullable)options
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
@@ -579,7 +710,7 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authenticationPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -589,6 +720,8 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
                 if (!authSuccess) {
+                    // Reset authentication context on failure
+                    self.authenticationContext = nil;
                     reject(@"AuthenticationError", authError.localizedDescription, authError);
                     return;
                 }
@@ -606,7 +739,6 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
             } mutableCopy];
 
-
             // Look up server in the keychain
             CFTypeRef foundTypeRef = NULL;
             OSStatus osStatus = SecItemCopyMatching((__bridge CFDictionaryRef)query, &foundTypeRef);
@@ -618,7 +750,7 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authenticationPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -633,10 +765,8 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 }
 
                 // Retry retrieving the item with new authentication context
-                query = [query mutableCopy];
                 query[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
                 osStatus = SecItemCopyMatching((__bridge CFDictionaryRef)query, &foundTypeRef);
-
             }
 
             if (osStatus == errSecItemNotFound) {
@@ -672,15 +802,15 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
     });
 }
 
-// Updated resetInternetCredentialsForOptions method with graceful authentication handling
+// Reset Internet Credentials with Graceful Authentication Handling
 RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
-                      resolver:(RCTPromiseResolveBlock)resolve
-                      rejecter:(RCTPromiseRejectBlock)reject)
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
             NSString *server = serverValue(options);
-            NSString *authenticationPrompt = options[@"promptMessage"] ?: @"Authenticate to reset credentials";
+            NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to reset credentials";
 
             // Check if authentication context is set; if not, authenticate
             if (!self.authenticationContext) {
@@ -688,7 +818,7 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authenticationPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -698,6 +828,8 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
                 dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
                 if (!authSuccess) {
+                    // Reset authentication context on failure
+                    self.authenticationContext = nil;
                     reject(@"AuthenticationError", authError.localizedDescription, authError);
                     return;
                 }
@@ -711,7 +843,7 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
 
-                [self ensureAuthenticationWithPrompt:authenticationPrompt completion:^(BOOL success, NSError *error) {
+                [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
                     authSuccess = success;
                     authError = error;
                     dispatch_semaphore_signal(sema);
@@ -742,37 +874,9 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
     });
 }
 
+#pragma mark - Credential Deletion Helper
 
-
-
-
-// HELPERS
-// ______________________________________________
-RCT_EXPORT_METHOD(getPublicKey:(nonnull NSData *)alias resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-{
-  return resolve([self getPublicKeyBase64Encoded:alias]);
-}
-
-// Helper method to ensure authentication is in place
-- (void)ensureAuthenticationWithPrompt:(NSString *)prompt completion:(void (^)(BOOL success, NSError *error))completion {
-    // Initialize LAContext
-    self.authenticationContext = [[LAContext alloc] init];
-    self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust as needed
-    self.authenticationContext.localizedFallbackTitle = @""; // Optional: customize or leave empty
-
-    NSLog(@"Starting biometric authentication");
-
-    // Perform biometric authentication
-    [self.authenticationContext evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics
-                               localizedReason:prompt
-                                         reply:^(BOOL success, NSError *error) {
-        if (completion) {
-            completion(success, error);
-        }
-    }];
-}
-
-// Adjusted deleteCredentialsForServer method
+// Helper method to delete credentials for a server
 - (OSStatus)deleteCredentialsForServer:(NSString *)server withOptions:(NSDictionary *)options {
     CFBooleanRef cloudSync = cloudSyncValue(options);
 
@@ -788,48 +892,37 @@ RCT_EXPORT_METHOD(getPublicKey:(nonnull NSData *)alias resolver:(RCTPromiseResol
     return osStatus;
 }
 
-// Helper function to retrieve cloud synchronization option
-CFBooleanRef cloudSyncValue(NSDictionary *options) {
-    NSNumber *synchronizableOption = options[@"synchronizable"];
-    if (synchronizableOption && [synchronizableOption boolValue]) {
-        return kCFBooleanTrue;
-    } else {
-        return kCFBooleanFalse;
+#pragma mark - Other React-Native Methods
+
+// Get Public Key
+RCT_EXPORT_METHOD(getPublicKey:(NSString *)alias 
+                  resolver:(RCTPromiseResolveBlock)resolve 
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    @try {
+        NSString *publicKey = [self getPublicKeyBase64Encoded:[alias dataUsingEncoding:NSUTF8StringEncoding]];
+        if (publicKey) {
+            resolve(publicKey);
+        } else {
+            resolve([NSNull null]);
+        }
+    } @catch (NSException *exception) {
+        reject(exception.name, exception.reason, nil);
     }
 }
-
-// Helper function to retrieve authentication prompt message
-NSString *authenticationPromptValue(NSDictionary *options) {
-    NSString *prompt = options[@"promptMessage"];
-    if (prompt) {
-        return prompt;
-    } else {
-        return @"Authenticate to proceed";
-    }
-}
-
-// Helper function to retrieve server value from options
-NSString *serverValue(NSDictionary *options) {
-    NSString *server = options[@"server"];
-    if (server) {
-        return server;
-    } else {
-        // Handle the case where server is not provided
-        return @"";
-    }
-}
-
-// Helper function to reject a promise with an NSError
-void rejectWithError(RCTPromiseRejectBlock reject, NSError *error) {
-    if (reject) {
-        reject([NSString stringWithFormat:@"%ld", (long)error.code], error.localizedDescription, error);
-    }
-}
-
-
-
 
 #endif
 
+#pragma mark - Required React Native Module Methods
+
++ (BOOL)requiresMainQueueSetup
+{
+    return NO;
+}
+
+- (dispatch_queue_t)methodQueue
+{
+    return dispatch_queue_create("com.oblador.DeviceCryptoQueue", DISPATCH_QUEUE_SERIAL);
+}
 
 @end

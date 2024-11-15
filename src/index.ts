@@ -1,10 +1,14 @@
 // index.ts
+
 import { NativeModules, Platform } from 'react-native';
+
 
 const { DeviceCrypto: RNDeviceCrypto } = NativeModules;
 
+// interfaces.ts
 
 // enums.ts
+
 export enum AccessLevel {
   ALWAYS = 0,
   UNLOCKED_DEVICE = 1,
@@ -46,6 +50,9 @@ export enum AccessControl {
   BIOMETRY_ANY = 'BIOMETRY_ANY',
   BIOMETRY_CURRENT_SET = 'BIOMETRY_CURRENT_SET',
   DEVICE_PASSCODE = 'DEVICE_PASSCODE',
+  BIOMETRY_ANY_OR_DEVICE_PASSCODE = 'BIOMETRY_ANY_OR_DEVICE_PASSCODE',
+  BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE = 'BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE',
+  APPLICATION_PASSWORD = 'APPLICATION_PASSWORD',
 }
 
 export enum AuthenticationType {
@@ -53,7 +60,7 @@ export enum AuthenticationType {
   DEVICE_PASSCODE = 'DEVICE_PASSCODE',
 }
 
-// interfaces.ts
+
 export interface BiometryParams {
   promptMessage?: string;
   promptTitle?: string;
@@ -111,10 +118,11 @@ export interface AccessControlOption {
   accessControl?: AccessControl;
 }
 
+
 /**
- * Normalizes the options passed to setGenericPassword and getGenericPassword.
+ * Helper functions to normalize options
  */
-export function normalizeOptions(
+function normalizeOptions(
   serviceOrOptions?: string | SetOptions | GetOptions | BaseOptions
 ): SetOptions | GetOptions | BaseOptions {
   if (typeof serviceOrOptions === 'string') {
@@ -123,10 +131,7 @@ export function normalizeOptions(
   return serviceOrOptions || {};
 }
 
-/**
- * Normalizes the service option.
- */
-export function normalizeServiceOption(
+function normalizeServiceOption(
   serviceOrOptions?: string | BaseOptions
 ): BaseOptions {
   if (typeof serviceOrOptions === 'string') {
@@ -135,10 +140,7 @@ export function normalizeServiceOption(
   return serviceOrOptions || {};
 }
 
-/**
- * Normalizes the server option.
- */
-export function normalizeServerOption(
+function normalizeServerOption(
   serverOrOptions?: string | BaseOptions
 ): BaseOptions {
   if (typeof serverOrOptions === 'string') {
@@ -147,15 +149,12 @@ export function normalizeServerOption(
   return serverOrOptions || {};
 }
 
-
-
-
 /**
  * Unified Crypto and Keychain Module
  */
 const CryptoKeychain = {
   // --- DeviceCrypto Methods ---
-  
+
   /**
    * Authenticate using biometric authentication before using the private key.
    */
@@ -177,7 +176,7 @@ const CryptoKeychain = {
     alias: string,
     options: KeyCreationParams
   ): Promise<string> {
-    return RNDeviceCrypto.getOrCreateAsymmetricKey(alias, options);
+    return RNDeviceCrypto.createKey(alias, options);
   },
 
   /**
@@ -188,7 +187,7 @@ const CryptoKeychain = {
   },
 
   /**
-   * Get the public key in PEM format.
+   * Get the public key in Base64 format.
    */
   getPublicKey(alias: string): Promise<string | null> {
     return RNDeviceCrypto.getPublicKey(alias);
@@ -207,6 +206,7 @@ const CryptoKeychain = {
 
   /**
    * Encrypt text using a public key.
+   * Note: Ensure that the native module implements the `encrypt` method.
    */
   encrypt(
     publicKeyBase64: string,
@@ -218,6 +218,7 @@ const CryptoKeychain = {
 
   /**
    * Decrypt encrypted text using the private key.
+   * Note: Ensure that the native module implements the `decrypt` method.
    */
   decrypt(
     alias: string,
@@ -362,7 +363,7 @@ const CryptoKeychain = {
    */
   resetInternetCredentials(
     serverOrOptions: string | BaseOptions
-  ): Promise<void> {
+  ): Promise<boolean> {
     const options = normalizeServerOption(serverOrOptions);
     return RNDeviceCrypto.resetInternetCredentialsForOptions(options);
   },
@@ -430,7 +431,7 @@ const CryptoKeychain = {
 
   /**
    * Returns the security level supported by the library on the current device.
-   * @platform Android
+   * @platform iOS
    */
   getSecurityLevel(
     options?: AccessControlOption
