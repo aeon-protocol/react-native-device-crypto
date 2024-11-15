@@ -594,9 +594,13 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                     return;
                 }
             }
-
-            // Delete existing credentials
-            [self deleteCredentialsForServer:server withOptions:options];
+            
+            OSStatus osStatusDelete = [self deleteCredentialsForServer:server withOptions:options];
+            
+            if (osStatusDelete != noErr && osStatusDelete != errSecItemNotFound) {
+                NSError *error = [NSError errorWithDomain:NSOSStatusErrorDomain code:osStatusDelete userInfo:nil];
+                return rejectWithError(reject, error);
+            }
 
             // Create access control based on options
             CFErrorRef error = NULL;
@@ -660,21 +664,21 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 CFRelease(accessControl);
             }
 
-            if (osStatus == errSecDuplicateItem) {
-                // Item already exists, update it
-                NSDictionary *query = @{
-                    (__bridge NSString *)kSecClass: (__bridge id)(kSecClassInternetPassword),
-                    (__bridge NSString *)kSecAttrServer: server,
-                    (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
-                };
-                NSDictionary *updateAttributes = @{
-                    (__bridge NSString *)kSecValueData: [password dataUsingEncoding:NSUTF8StringEncoding],
-                    (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
-                    (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
-//                    (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip
-                };
-                osStatus = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)updateAttributes);
-            }
+//            if (osStatus == errSecDuplicateItem) {
+//                // Item already exists, update it
+//                NSDictionary *query = @{
+//                    (__bridge NSString *)kSecClass: (__bridge id)(kSecClassInternetPassword),
+//                    (__bridge NSString *)kSecAttrServer: server,
+//                    (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
+//                };
+//                NSDictionary *updateAttributes = @{
+//                    (__bridge NSString *)kSecValueData: [password dataUsingEncoding:NSUTF8StringEncoding],
+//                    (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
+//                    (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
+////                    (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip
+//                };
+//                osStatus = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)updateAttributes);
+//            }
 
             if (osStatus == errSecSuccess) {
                 resolve(@(YES));
@@ -883,7 +887,7 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
         (__bridge NSString *)kSecAttrServer: server,
         (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
         (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
-        (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip
+//        (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip
     } mutableCopy];
 
     OSStatus osStatus = SecItemDelete((__bridge CFDictionaryRef)query);

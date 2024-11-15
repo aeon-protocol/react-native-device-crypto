@@ -96,7 +96,7 @@ export interface SetOptions extends BaseOptions {
   accessControl?: AccessControl;
   authenticationPrompt?: string;
   authenticationType?: AuthenticationType;
-  securityLevel?: SecurityLevel;
+  // securityLevel?: SecurityLevel;
   storage?: string;
 }
 
