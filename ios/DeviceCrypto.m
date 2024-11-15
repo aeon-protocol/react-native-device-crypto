@@ -113,6 +113,26 @@ SecAccessControlCreateFlags accessControlValue(NSDictionary *options)
     return 0;
 }
 
+
+CFStringRef accessibleValue(NSDictionary *options)
+{
+  if (options && options[@"accessible"] != nil) {
+    NSDictionary *keyMap = @{
+      @"AccessibleWhenUnlocked": (__bridge NSString *)kSecAttrAccessibleWhenUnlocked,
+      @"AccessibleAfterFirstUnlock": (__bridge NSString *)kSecAttrAccessibleAfterFirstUnlock,
+      @"AccessibleAlways": (__bridge NSString *)kSecAttrAccessibleAlways,
+      @"AccessibleWhenPasscodeSetThisDeviceOnly": (__bridge NSString *)kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
+      @"AccessibleWhenUnlockedThisDeviceOnly": (__bridge NSString *)kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+      @"AccessibleAfterFirstUnlockThisDeviceOnly": (__bridge NSString *)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    };
+    NSString *result = keyMap[options[@"accessible"]];
+    if (result) {
+      return (__bridge CFStringRef)result;
+    }
+  }
+  return kSecAttrAccessibleAfterFirstUnlock;
+}
+
 #pragma mark - Authentication Handling
 
 // Helper method to ensure authentication is in place
@@ -152,6 +172,7 @@ SecAccessControlCreateFlags accessControlValue(NSDictionary *options)
 
 - (NSData *)getPublicKeyBits:(nonnull NSData*)alias
 {
+
     NSDictionary *query = @{
         (id)kSecClass:               (id)kSecClassKey,
         (id)kSecAttrKeyClass:        (id)kSecAttrKeyClassPublic,
@@ -165,9 +186,12 @@ SecAccessControlCreateFlags accessControlValue(NSDictionary *options)
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&keyRef);
     if (status == errSecSuccess) {
         // Get the data associated with kSecValueData from the returned dictionary
-        NSData *data = CFBridgingRelease(SecKeyCopyExternalRepresentation(keyRef, NULL));
-        CFRelease(keyRef);
-        return data;
+        CFDataRef dataRef = (CFDataRef)CFDictionaryGetValue((CFDictionaryRef)keyRef, kSecValueData);
+        if (dataRef) {
+            return (__bridge NSData *)dataRef;
+        } else {
+            return nil;
+        }
     } else if (status == errSecItemNotFound) {
         return nil;
     } else {
@@ -295,34 +319,8 @@ SecAccessControlCreateFlags accessControlValue(NSDictionary *options)
     }
 
     CFErrorRef error = nil;
-    CFStringRef keyAccessLevel = kSecAttrAccessibleAfterFirstUnlock;
-    SecAccessControlCreateFlags acFlag = kSecAccessControlPrivateKeyUsage;
-    int accessLevel = [options[kAccessLevel] intValue];
-    BOOL invalidateOnNewBiometry = options[kInvalidateOnNewBiometry] && [options[kInvalidateOnNewBiometry] boolValue];
-    
-    switch(accessLevel) {
-        case UNLOCKED_DEVICE:
-            if (![self hasPassCode]) {
-                [NSException raise:@"E1771" format:@"The device cannot meet requirements. No passcode has been set."];
-            }
-            keyAccessLevel = kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
-            acFlag = kSecAccessControlPrivateKeyUsage;
-            break;
-        case AUTHENTICATION_REQUIRED:
-            if (![self hasBiometry]) {
-                [NSException raise:@"E1771" format:@"The device cannot meet requirements. No biometry has been enrolled."];
-            }
-            keyAccessLevel = kSecAttrAccessibleWhenUnlockedThisDeviceOnly;
-            if (@available(iOS 11.3, *)) {
-                acFlag = invalidateOnNewBiometry ? (kSecAccessControlBiometryCurrentSet | kSecAccessControlPrivateKeyUsage) : (kSecAccessControlBiometryAny | kSecAccessControlPrivateKeyUsage);
-            } else {
-                acFlag = kSecAccessControlPrivateKeyUsage;
-            }
-            break;
-        default: // ALWAYS
-            keyAccessLevel = kSecAttrAccessibleAfterFirstUnlock;
-            acFlag = kSecAccessControlPrivateKeyUsage;
-    }
+    CFStringRef keyAccessLevel = accessibleValue(options);
+    SecAccessControlCreateFlags acFlag = accessControlValue(options);
     
     SecAccessControlRef acRef = SecAccessControlCreateWithFlags(kCFAllocatorDefault, keyAccessLevel, acFlag, &error);
     
@@ -604,7 +602,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
             CFErrorRef error = NULL;
             SecAccessControlRef accessControl = SecAccessControlCreateWithFlags(
                 kCFAllocatorDefault,
-                kSecAttrAccessibleWhenUnlocked,
+                accessibleValue(options),
                 accessControlValue(options), // Customized access control
                 &error
             );
@@ -622,7 +620,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
                 (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
                 (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
-                (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
+//                (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
             } mutableCopy];
 
             OSStatus osStatus = SecItemAdd((__bridge CFDictionaryRef)attributes, NULL);
@@ -673,7 +671,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                     (__bridge NSString *)kSecValueData: [password dataUsingEncoding:NSUTF8StringEncoding],
                     (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
                     (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
-                    (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip
+//                    (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip
                 };
                 osStatus = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)updateAttributes);
             }

@@ -9,11 +9,6 @@ const { DeviceCrypto: RNDeviceCrypto } = NativeModules;
 
 // enums.ts
 
-export enum AccessLevel {
-  ALWAYS = 0,
-  UNLOCKED_DEVICE = 1,
-  AUTHENTICATION_REQUIRED = 2,
-}
 
 export enum KeyTypes {
   ASYMMETRIC = 0,
@@ -69,8 +64,8 @@ export interface BiometryParams {
 }
 
 export interface KeyCreationParams {
-  accessLevel: AccessLevel;
-  invalidateOnNewBiometry?: boolean;
+  accessible?: Accessible;
+  accessControl?: AccessControl;
 }
 
 export interface EncryptionResult {
