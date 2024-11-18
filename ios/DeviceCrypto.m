@@ -85,33 +85,44 @@ void rejectWithError(RCTPromiseRejectBlock reject, NSError *error) {
 }
 
 // Helper function to retrieve access control flags from options
-SecAccessControlCreateFlags accessControlValue(NSDictionary *options)
+SecAccessControlCreateFlags accessControlValue(NSDictionary *options, BOOL isEnclave)
 {
+    SecAccessControlCreateFlags flags = 0;
+
     if (options && options[kAccessControlType] && [options[kAccessControlType] isKindOfClass:[NSString class]]) {
-        if ([options[kAccessControlType] isEqualToString: kAccessControlUserPresence]) {
-            return kSecAccessControlUserPresence;
+        NSString *accessControlType = options[kAccessControlType];
+        
+        if ([accessControlType isEqualToString:kAccessControlUserPresence]) {
+            flags = kSecAccessControlUserPresence;
         }
-        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryAny]) {
-            return kSecAccessControlBiometryAny;
+        else if ([accessControlType isEqualToString:kAccessControlBiometryAny]) {
+            flags = kSecAccessControlBiometryAny;
         }
-        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryCurrentSet]) {
-            return kSecAccessControlBiometryCurrentSet;
+        else if ([accessControlType isEqualToString:kAccessControlBiometryCurrentSet]) {
+            flags = kSecAccessControlBiometryCurrentSet;
         }
-        else if ([options[kAccessControlType] isEqualToString: kAccessControlDevicePasscode]) {
-            return kSecAccessControlDevicePasscode;
+        else if ([accessControlType isEqualToString:kAccessControlDevicePasscode]) {
+            flags = kSecAccessControlDevicePasscode;
         }
-        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryAnyOrDevicePasscode]) {
-            return kSecAccessControlBiometryAny | kSecAccessControlOr | kSecAccessControlDevicePasscode;
+        else if ([accessControlType isEqualToString:kAccessControlBiometryAnyOrDevicePasscode]) {
+            flags = kSecAccessControlBiometryAny | kSecAccessControlOr | kSecAccessControlDevicePasscode;
         }
-        else if ([options[kAccessControlType] isEqualToString: kAccessControlBiometryCurrentSetOrDevicePasscode]) {
-            return kSecAccessControlBiometryCurrentSet | kSecAccessControlOr | kSecAccessControlDevicePasscode;
+        else if ([accessControlType isEqualToString:kAccessControlBiometryCurrentSetOrDevicePasscode]) {
+            flags = kSecAccessControlBiometryCurrentSet | kSecAccessControlOr | kSecAccessControlDevicePasscode;
         }
-        else if ([options[kAccessControlType] isEqualToString: kAccessControlApplicationPassword]) {
-            return kSecAccessControlApplicationPassword;
+        else if ([accessControlType isEqualToString:kAccessControlApplicationPassword]) {
+            flags = kSecAccessControlApplicationPassword;
         }
     }
-    return 0;
+
+    // If isEnclave is set, add the kSecAccessControlPrivateKeyUsage flag
+    if (isEnclave) {
+        flags |= kSecAccessControlPrivateKeyUsage;
+    }
+
+    return flags;
 }
+
 
 
 CFStringRef accessibleValue(NSDictionary *options)
@@ -320,7 +331,7 @@ CFStringRef accessibleValue(NSDictionary *options)
 
     CFErrorRef error = nil;
     CFStringRef keyAccessLevel = accessibleValue(options);
-    SecAccessControlCreateFlags acFlag = accessControlValue(options);
+    SecAccessControlCreateFlags acFlag = accessControlValue(options,true);
     
     SecAccessControlRef acRef = SecAccessControlCreateWithFlags(kCFAllocatorDefault, keyAccessLevel, acFlag, &error);
     
@@ -607,7 +618,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
             SecAccessControlRef accessControl = SecAccessControlCreateWithFlags(
                 kCFAllocatorDefault,
                 accessibleValue(options),
-                accessControlValue(options), // Customized access control
+                accessControlValue(options,false), // Customized access control
                 &error
             );
             if (error) {

@@ -16,43 +16,43 @@ export enum KeyTypes {
 }
 
 export enum BiometryType {
-  NONE = 'NONE',
-  TOUCH = 'TOUCH',
-  FACE = 'FACE',
-  IRIS = 'IRIS',
+  NONE = 'None',
+  TOUCH = 'Touch', 
+  FACE = 'Face',
+  IRIS = 'Iris',
 }
 
 export enum SecurityLevel {
-  NOT_PROTECTED = 'NOT_PROTECTED',
-  PIN_OR_PATTERN = 'PIN_OR_PATTERN',
-  BIOMETRY = 'BIOMETRY',
+  NOT_PROTECTED = 'NotProtected',
+  PIN_OR_PATTERN = 'PinOrPattern',
+  BIOMETRY = 'Biometry',
 }
 
 export enum SecurityRules {
-  NONE = 'NONE',
-  AUTOMATIC_UPDATES = 'AUTOMATIC_UPDATES',
+  NONE = 'None',
+  AUTOMATIC_UPDATES = 'AutomaticUpdates',
 }
 
 export enum Accessible {
-  WHEN_UNLOCKED = 'WHEN_UNLOCKED',
-  AFTER_FIRST_UNLOCK = 'AFTER_FIRST_UNLOCK',
-  ALWAYS = 'ALWAYS',
-  WHEN_PASSCODE_SET_THIS_DEVICE_ONLY = 'WHEN_PASSCODE_SET_THIS_DEVICE_ONLY',
+  WHEN_UNLOCKED = 'WhenUnlocked',
+  AFTER_FIRST_UNLOCK = 'AfterFirstUnlock',
+  ALWAYS = 'Always',
+  WHEN_PASSCODE_SET_THIS_DEVICE_ONLY = 'WhenPasscodeSetThisDeviceOnly',
 }
 
 export enum AccessControl {
-  USER_PRESENCE = 'USER_PRESENCE',
-  BIOMETRY_ANY = 'BIOMETRY_ANY',
-  BIOMETRY_CURRENT_SET = 'BIOMETRY_CURRENT_SET',
-  DEVICE_PASSCODE = 'DEVICE_PASSCODE',
-  BIOMETRY_ANY_OR_DEVICE_PASSCODE = 'BIOMETRY_ANY_OR_DEVICE_PASSCODE',
-  BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE = 'BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE',
-  APPLICATION_PASSWORD = 'APPLICATION_PASSWORD',
+  USER_PRESENCE = 'UserPresence',
+  BIOMETRY_ANY = 'BiometryAny',
+  BIOMETRY_CURRENT_SET = 'BiometryCurrentSet',
+  DEVICE_PASSCODE = 'DevicePasscode',
+  BIOMETRY_ANY_OR_DEVICE_PASSCODE = 'BiometryAnyOrDevicePasscode',
+  BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE = 'BiometryCurrentSetOrDevicePasscode',
+  APPLICATION_PASSWORD = 'ApplicationPassword',
 }
 
 export enum AuthenticationType {
-  BIOMETRICS = 'BIOMETRICS',
-  DEVICE_PASSCODE = 'DEVICE_PASSCODE',
+  BIOMETRICS = 'Biometrics',
+  DEVICE_PASSCODE = 'DevicePasscode',
 }
 
 
