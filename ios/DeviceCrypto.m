@@ -31,6 +31,9 @@
 #define kAccessControlBiometryAnyOrDevicePasscode @"BiometryAnyOrDevicePasscode"
 #define kAccessControlBiometryCurrentSetOrDevicePasscode @"BiometryCurrentSetOrDevicePasscode"
 
+// Use Auth Context
+#define kUseAuthContext @"useAuthContext"
+
 typedef NS_ENUM(NSUInteger, KeyType) {
     ASYMMETRIC = 0,
     SYMMETRIC = 1,
