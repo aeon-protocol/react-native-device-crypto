@@ -98,6 +98,7 @@ export interface SetOptions extends BaseOptions {
   authenticationType?: AuthenticationType;
   // securityLevel?: SecurityLevel;
   storage?: string;
+  useAuthContext?: boolean;
 }
 
 export interface GetOptions extends BaseOptions {

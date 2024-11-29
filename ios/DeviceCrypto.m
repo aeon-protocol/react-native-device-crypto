@@ -123,7 +123,13 @@ SecAccessControlCreateFlags accessControlValue(NSDictionary *options, BOOL isEnc
     return flags;
 }
 
-
+BOOL useAuthContextValue(NSDictionary *options)
+{
+    if (options && options[kUseAuthContext] && [options[kUseAuthContext] isKindOfClass:[NSNumber class]]) {
+        return [options[kUseAuthContext] boolValue];
+    }
+    return NO; // Default to NO if not specified
+}
 
 CFStringRef accessibleValue(NSDictionary *options)
 {
@@ -584,7 +590,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
             NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to save credentials";
 
             // Check if authentication context is set; if not, authenticate
-            if (!self.authenticationContext) {
+            if (!self.authenticationContext && useAuthContextValue(options)) {
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
@@ -634,13 +640,17 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 (__bridge NSString *)kSecValueData: [password dataUsingEncoding:NSUTF8StringEncoding],
                 (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
                 (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
-                (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
 //                (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
             } mutableCopy];
 
+            // If authentication is required and useAuthContext is true, attach the authentication context
+            if (useAuthContextValue(options) && self.authenticationContext) {
+                attributes[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
+            }
+
             OSStatus osStatus = SecItemAdd((__bridge CFDictionaryRef)attributes, NULL);
 
-            if (osStatus == errSecInteractionNotAllowed) {
+            if (osStatus == errSecInteractionNotAllowed && useAuthContextValue(options)) {
                 // Authentication session may have expired, re-authenticate
                 self.authenticationContext = nil;
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
@@ -718,7 +728,7 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
             NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to retrieve credentials";
 
             // Check if authentication context is set; if not, authenticate
-            if (!self.authenticationContext) {
+            if (!self.authenticationContext && useAuthContextValue(options)) {
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
@@ -747,16 +757,20 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
                 (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
                 (__bridge NSString *)kSecReturnData: (__bridge id)kCFBooleanTrue,
                 (__bridge NSString *)kSecMatchLimit: (__bridge NSString *)kSecMatchLimitOne,
-                (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
                 (__bridge NSString *)kSecUseOperationPrompt: authenticationPrompt,
                 (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
             } mutableCopy];
+
+            // If authentication is required and useAuthContext is true, attach the authentication context
+            if (useAuthContextValue(options) && self.authenticationContext) {
+                query[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
+            }
 
             // Look up server in the keychain
             CFTypeRef foundTypeRef = NULL;
             OSStatus osStatus = SecItemCopyMatching((__bridge CFDictionaryRef)query, &foundTypeRef);
 
-            if (osStatus == errSecInteractionNotAllowed) {
+            if (osStatus == errSecInteractionNotAllowed && useAuthContextValue(options)) {
                 // Authentication session may have expired, re-authenticate
                 self.authenticationContext = nil;
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
@@ -826,7 +840,7 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
             NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to reset credentials";
 
             // Check if authentication context is set; if not, authenticate
-            if (!self.authenticationContext) {
+            if (!self.authenticationContext && useAuthContextValue(options)) {
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
@@ -849,7 +863,7 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
             }
 
             OSStatus osStatus = [self deleteCredentialsForServer:server withOptions:options];
-            if (osStatus == errSecInteractionNotAllowed) {
+            if (osStatus == errSecInteractionNotAllowed && useAuthContextValue(options)) {
                 // Authentication session may have expired, re-authenticate
                 self.authenticationContext = nil;
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
@@ -897,9 +911,12 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
         (__bridge NSString *)kSecClass: (__bridge id)kSecClassInternetPassword,
         (__bridge NSString *)kSecAttrServer: server,
         (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
-        (__bridge NSString *)kSecUseAuthenticationContext: self.authenticationContext,
 //        (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip
     } mutableCopy];
+
+    if (useAuthContextValue(options) && self.authenticationContext) {
+        query[(__bridge NSString *)kSecUseAuthenticationContext] = self.authenticationContext;
+    }
 
     OSStatus osStatus = SecItemDelete((__bridge CFDictionaryRef)query);
     return osStatus;
