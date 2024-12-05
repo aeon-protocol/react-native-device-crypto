@@ -3,7 +3,16 @@
 import { NativeModules, Platform } from 'react-native';
 
 
-const { DeviceCrypto: RNDeviceCrypto } = NativeModules;
+const { DeviceCrypto } = NativeModules;
+
+const RNDeviceCrypto = new Proxy(DeviceCrypto, {
+  get(target, prop) {
+    if (Platform.OS === 'android') {
+      throw new Error('DeviceCrypto is not supported on Android');
+    }
+    return target[prop];
+  }
+});
 
 // interfaces.ts
 
