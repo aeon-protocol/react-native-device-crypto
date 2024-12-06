@@ -50,7 +50,7 @@ RCT_EXPORT_MODULE()
 #pragma mark - Helper Functions
 
 // Helper function to retrieve cloud synchronization option
-CFBooleanRef cloudSyncValue(NSDictionary *options) {
+CFBooleanRef deviceCryptoCloudSyncValue(NSDictionary *options) {
     NSNumber *synchronizableOption = options[@"synchronizable"];
     if (synchronizableOption && [synchronizableOption boolValue]) {
         return kCFBooleanTrue;
@@ -60,7 +60,7 @@ CFBooleanRef cloudSyncValue(NSDictionary *options) {
 }
 
 // Helper function to retrieve authentication prompt message
-NSString *authenticationPromptValue(NSDictionary *options) {
+NSString *deviceCryptoAuthenticationPromptValue(NSDictionary *options) {
     NSString *prompt = options[@"promptMessage"];
     if (prompt) {
         return prompt;
@@ -70,7 +70,7 @@ NSString *authenticationPromptValue(NSDictionary *options) {
 }
 
 // Helper function to retrieve server value from options
-NSString *serverValue(NSDictionary *options) {
+NSString *deviceCryptoServerValue(NSDictionary *options) {
     NSString *server = options[@"server"];
     if (server) {
         return server;
@@ -88,7 +88,7 @@ void rejectWithError(RCTPromiseRejectBlock reject, NSError *error) {
 }
 
 // Helper function to retrieve access control flags from options
-SecAccessControlCreateFlags accessControlValue(NSDictionary *options, BOOL isEnclave)
+SecAccessControlCreateFlags deviceCryptoAccessControlValue(NSDictionary *options, BOOL isEnclave)
 {
     SecAccessControlCreateFlags flags = 0;
 
@@ -134,7 +134,7 @@ BOOL useAuthContextValue(NSDictionary *options)
     return NO; // Default to NO if not specified
 }
 
-CFStringRef accessibleValue(NSDictionary *options)
+CFStringRef deviceCryptoAccessibleValue(NSDictionary *options)
 {
   if (options && options[@"accessible"] != nil) {
     NSDictionary *keyMap = @{
@@ -174,7 +174,7 @@ CFStringRef accessibleValue(NSDictionary *options)
         // Add more policies as needed
     }
     
-    NSString *prompt = authenticationPromptValue(options);
+    NSString *prompt = deviceCryptoAuthenticationPromptValue(options);
     
     NSLog(@"Starting authentication with policy: %lu", (unsigned long)policy);
     
@@ -339,8 +339,8 @@ CFStringRef accessibleValue(NSDictionary *options)
     }
 
     CFErrorRef error = nil;
-    CFStringRef keyAccessLevel = accessibleValue(options);
-    SecAccessControlCreateFlags acFlag = accessControlValue(options,true);
+    CFStringRef keyAccessLevel = deviceCryptoAccessibleValue(options);
+    SecAccessControlCreateFlags acFlag = deviceCryptoAccessControlValue(options,true);
     
     SecAccessControlRef acRef = SecAccessControlCreateWithFlags(kCFAllocatorDefault, keyAccessLevel, acFlag, &error);
     
@@ -430,7 +430,7 @@ RCT_EXPORT_METHOD(authenticate:(NSDictionary *)options
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         // Retrieve custom prompt message or use default
-        NSString *authPrompt = authenticationPromptValue(options);
+        NSString *authPrompt = deviceCryptoAuthenticationPromptValue(options);
     
         [self ensureAuthenticationWithOptions:options completion:^(BOOL success, NSError *error) {
             // Ensure callbacks are called on the main thread
@@ -474,7 +474,7 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias
         @try {
             // Check if authentication context is set; if not, authenticate
             if (!self.authenticationContext) {
-                NSString *authPrompt = authenticationPromptValue(options) ?: @"Authenticate to sign data";
+                NSString *authPrompt = deviceCryptoAuthenticationPromptValue(options) ?: @"Authenticate to sign data";
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
@@ -513,7 +513,7 @@ RCT_EXPORT_METHOD(sign:(NSString *)alias
             if (status == errSecInteractionNotAllowed) {
                 // Authentication session may have expired, retry authentication
                 self.authenticationContext = nil; // Reset the context
-                NSString *authPrompt = authenticationPromptValue(options) ?: @"Authenticate to sign data";
+                NSString *authPrompt = deviceCryptoAuthenticationPromptValue(options) ?: @"Authenticate to sign data";
                 dispatch_semaphore_t sema = dispatch_semaphore_create(0);
                 __block BOOL authSuccess = NO;
                 __block NSError *authError = nil;
@@ -589,8 +589,8 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
-            CFBooleanRef cloudSync = cloudSyncValue(options);
-            NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to save credentials";
+            CFBooleanRef cloudSync = deviceCryptoCloudSyncValue(options);
+            NSString *authenticationPrompt = deviceCryptoAuthenticationPromptValue(options) ?: @"Authenticate to save credentials";
 
             // Check if authentication context is set; if not, authenticate
             if (!self.authenticationContext && useAuthContextValue(options)) {
@@ -626,8 +626,8 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
             CFErrorRef error = NULL;
             SecAccessControlRef accessControl = SecAccessControlCreateWithFlags(
                 kCFAllocatorDefault,
-                accessibleValue(options),
-                accessControlValue(options,false), // Customized access control
+                deviceCryptoAccessibleValue(options),
+                deviceCryptoAccessControlValue(options,false), // Customized access control
                 &error
             );
             if (error) {
@@ -727,8 +727,8 @@ RCT_EXPORT_METHOD(getInternetCredentialsForServer:(NSString *)server
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
-            CFBooleanRef cloudSync = cloudSyncValue(options);
-            NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to retrieve credentials";
+            CFBooleanRef cloudSync = deviceCryptoCloudSyncValue(options);
+            NSString *authenticationPrompt = deviceCryptoAuthenticationPromptValue(options) ?: @"Authenticate to retrieve credentials";
 
             // Check if authentication context is set; if not, authenticate
             if (!self.authenticationContext && useAuthContextValue(options)) {
@@ -839,8 +839,8 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
-            NSString *server = serverValue(options);
-            NSString *authenticationPrompt = authenticationPromptValue(options) ?: @"Authenticate to reset credentials";
+            NSString *server = deviceCryptoServerValue(options);
+            NSString *authenticationPrompt = deviceCryptoAuthenticationPromptValue(options) ?: @"Authenticate to reset credentials";
 
             // Check if authentication context is set; if not, authenticate
             if (!self.authenticationContext && useAuthContextValue(options)) {
@@ -908,7 +908,7 @@ RCT_EXPORT_METHOD(resetInternetCredentialsForOptions:(NSDictionary *)options
 
 // Helper method to delete credentials for a server
 - (OSStatus)deleteCredentialsForServer:(NSString *)server withOptions:(NSDictionary *)options {
-    CFBooleanRef cloudSync = cloudSyncValue(options);
+    CFBooleanRef cloudSync = deviceCryptoCloudSyncValue(options);
 
     NSMutableDictionary *query = [@{
         (__bridge NSString *)kSecClass: (__bridge id)kSecClassInternetPassword,
