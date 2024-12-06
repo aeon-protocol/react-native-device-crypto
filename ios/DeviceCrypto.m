@@ -81,7 +81,7 @@ NSString *deviceCryptoServerValue(NSDictionary *options) {
 }
 
 // Helper function to reject a promise with an NSError
-void rejectWithError(RCTPromiseRejectBlock reject, NSError *error) {
+void deviceCryptoRejectWithError(RCTPromiseRejectBlock reject, NSError *error) {
     if (reject) {
         reject([NSString stringWithFormat:@"%ld", (long)error.code], error.localizedDescription, error);
     }
@@ -619,7 +619,7 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
             
             if (osStatusDelete != noErr && osStatusDelete != errSecItemNotFound) {
                 NSError *error = [NSError errorWithDomain:NSOSStatusErrorDomain code:osStatusDelete userInfo:nil];
-                return rejectWithError(reject, error);
+                return deviceCryptoRejectWithError(reject, error);
             }
 
             // Create access control based on options
