@@ -678,9 +678,9 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
 
                 if (!authSuccess) {
-                    if (accessControl) {
-                        CFRelease(accessControl);
-                    }
+                    // if (accessControl) {
+                    //     CFRelease(accessControl);
+                    // }
                     // Clear authentication context on failure
                     self.authenticationContext = nil;
                     reject(@"AuthenticationError", authError.localizedDescription, authError);
@@ -692,9 +692,9 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 osStatus = SecItemAdd((__bridge CFDictionaryRef)attributes, NULL);
             }
 
-            if (accessControl) {
-                CFRelease(accessControl);
-            }
+            // if (accessControl) {
+            //     CFRelease(accessControl);
+            // }
 
 //            if (osStatus == errSecDuplicateItem) {
 //                // Item already exists, update it
