@@ -632,16 +632,16 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
 //                (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
             } mutableCopy];
 
-            SecAccessControlCreateFlags accessControl = deviceCryptoAccessControlValue(options,false);
+            SecAccessControlCreateFlags accessControlFlags = deviceCryptoAccessControlValue(options,false);
             CFStringRef accessible = deviceCryptoAccessibleValue(options);
 
             // Create access control based on options
-            if(accessControl) {
+            if(accessControlFlags) {
                 CFErrorRef error = NULL;
                 SecAccessControlRef accessControl = SecAccessControlCreateWithFlags(
                     kCFAllocatorDefault,
                     accessible,
-                    accessControl, // Customized access control
+                    accessControlFlags, // Customized access control
                     &error
                 );
                 if (error) {
