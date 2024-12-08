@@ -622,29 +622,37 @@ RCT_EXPORT_METHOD(setInternetCredentialsForServer:(NSString *)server
                 return deviceCryptoRejectWithError(reject, error);
             }
 
-            // Create access control based on options
-            CFErrorRef error = NULL;
-            SecAccessControlRef accessControl = SecAccessControlCreateWithFlags(
-                kCFAllocatorDefault,
-                deviceCryptoAccessibleValue(options),
-                deviceCryptoAccessControlValue(options,false), // Customized access control
-                &error
-            );
-            if (error) {
-                NSError *err = CFBridgingRelease(error);
-                reject(@"AccessControlError", @"Failed to create access control", err);
-                return;
-            }
-
             NSMutableDictionary *attributes = [@{
                 (__bridge NSString *)kSecClass: (__bridge id)(kSecClassInternetPassword),
                 (__bridge NSString *)kSecAttrServer: server,
                 (__bridge NSString *)kSecAttrAccount: username,
                 (__bridge NSString *)kSecValueData: [password dataUsingEncoding:NSUTF8StringEncoding],
                 (__bridge NSString *)kSecAttrSynchronizable: (__bridge id)(cloudSync),
-                (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
+                // (__bridge NSString *)kSecAttrAccessControl: (__bridge id)accessControl,
 //                (__bridge NSString *)kSecUseAuthenticationUI: (__bridge NSString *)kSecUseAuthenticationUISkip // Skip UI if possible
             } mutableCopy];
+
+            SecAccessControlCreateFlags accessControl = deviceCryptoAccessControlValue(options,false);
+            CFStringRef accessible = deviceCryptoAccessibleValue(options);
+
+            // Create access control based on options
+            if(accessControl) {
+                CFErrorRef error = NULL;
+                SecAccessControlRef accessControl = SecAccessControlCreateWithFlags(
+                    kCFAllocatorDefault,
+                    accessible,
+                    accessControl, // Customized access control
+                    &error
+                );
+                if (error) {
+                    NSError *err = CFBridgingRelease(error);
+                    reject(@"AccessControlError", @"Failed to create access control", err);
+                    return;
+                }
+                attributes[(__bridge NSString *)kSecAttrAccessControl] = (__bridge id)accessControl;
+            } else {
+                attributes[(__bridge NSString *)kSecAttrAccessible] = (__bridge id)accessible;
+            }
 
             // If authentication is required and useAuthContext is true, attach the authentication context
             if (useAuthContextValue(options) && self.authenticationContext) {
