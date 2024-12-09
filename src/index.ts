@@ -163,7 +163,7 @@ const CryptoKeychain = {
   /**
    * Authenticate using biometric authentication before using the private key.
    */
-  authenticate(options?: BiometryParams): Promise<void> {
+  authenticate(options?: SetOptions): Promise<void> {
     return RNDeviceCrypto.authenticate(options || {});
   },
 
