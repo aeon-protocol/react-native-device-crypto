@@ -161,17 +161,18 @@ CFStringRef deviceCryptoAccessibleValue(NSDictionary *options)
     self.authenticationContext = [[LAContext alloc] init];
     self.authenticationContext.touchIDAuthenticationAllowableReuseDuration = 30.0; // Adjust as needed
     self.authenticationContext.localizedFallbackTitle = @""; // Optional: customize or leave empty
+    NSString *accessControlType = options[kAccessControlType];
     
     // Set the authentication policy based on options
     LAPolicy policy = LAPolicyDeviceOwnerAuthentication; // Default policy
     
-    if (options[kAuthenticationType]) {
-        if ([options[kAuthenticationType] isEqualToString:kAuthenticationTypeBiometrics]) {
+    if (accessControlType) {
+        if ([accessControlType isEqualToString:kAccessControlBiometryAny] ||
+            [accessControlType isEqualToString:kAccessControlBiometryCurrentSet] ||
+            [accessControlType isEqualToString:kAccessControlBiometryAnyOrDevicePasscode] ||
+            [accessControlType isEqualToString:kAccessControlBiometryCurrentSetOrDevicePasscode]) {
             policy = LAPolicyDeviceOwnerAuthenticationWithBiometrics;
-        } else if ([options[kAuthenticationType] isEqualToString:kAuthenticationTypeBiometricsOrDevicePasscode]) {
-            policy = LAPolicyDeviceOwnerAuthentication;
         }
-        // Add more policies as needed
     }
     
     NSString *prompt = deviceCryptoAuthenticationPromptValue(options);
